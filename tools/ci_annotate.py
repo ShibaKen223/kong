@@ -24,13 +24,15 @@ for path in sys.argv[1:]:
         errors.append(f"::error title={path}::could not read report: {esc(str(e))}")
         failed = True
         continue
+    passed = []
     for name, c in report.get("checks", {}).items():
         if c.get("ok"):
-            notices.append(f"::notice title={path} {name}::{esc(str(c.get('value'))[:300])} ({c.get('s')}s)")
+            passed.append(f"{name}: {str(c.get('value'))[:160]} ({c.get('s')}s)")
         else:
             detail = c.get("error", "") + "\n" + c.get("trace", "")[-1200:]
             errors.append(f"::error title={path} {name}::{esc(detail)}")
             failed = failed or name not in SOFT
-# GitHub keeps only the first 10 annotations of each kind per step: errors first.
+    notices.append(f"::notice title={path} passed::{esc(chr(10).join(passed))}")
+# GitHub keeps only the first 10 annotations of each kind per step: one notice per report.
 print("\n".join(errors + notices))
 sys.exit(1 if failed else 0)
