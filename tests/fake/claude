@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Stands in for the Claude Code CLI in stream-json mode. FAKE_CLAUDE picks a behaviour."""
+import json
+import os
+import sys
+import time
+
+mode = os.environ.get("FAKE_CLAUDE", "ok")
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("9.9.9 (Claude Code)")
+    sys.exit(0)
+if mode == "old" and "--safe-mode" in args:
+    print("error: unknown option '--safe-mode'", file=sys.stderr)
+    sys.exit(1)
+log = os.environ.get("FAKE_CLAUDE_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(json.dumps(args) + "\n")
+
+
+def out(ev):
+    sys.stdout.write(json.dumps(ev, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    text = msg["message"]["content"][0]["text"]
+    out({"type": "system", "subtype": "init"})
+    if mode == "hang":
+        time.sleep(60)
+    if mode == "login":
+        out({"type": "assistant", "error": "authentication_failed",
+             "message": {"content": [{"type": "text", "text": "Not logged in · Please run /login"}]}})
+        out({"type": "result", "subtype": "success", "is_error": True, "result": "Not logged in · Please run /login"})
+        continue
+    if mode == "crash":
+        print("boom: something broke", file=sys.stderr)
+        sys.exit(3)
+    answer = "" if mode == "empty" else "整理：" + text.replace("<transcript>", "").replace("</transcript>", "")
+    out({"type": "stream_event", "event": {"type": "message_start"}})
+    for ch in answer:
+        out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": ch}}})
+    if answer:
+        out({"type": "assistant", "message": {"content": [{"type": "text", "text": answer}]}})
+    out({"type": "stream_event", "event": {"type": "message_stop"}})
+    time.sleep(3)  # the post-turn bookkeeping Kong must not wait for
+    out({"type": "result", "subtype": "success", "is_error": False, "result": answer})

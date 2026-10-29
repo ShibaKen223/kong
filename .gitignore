@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+packaging/kong.ico
+*.zip
+selftest*.json
