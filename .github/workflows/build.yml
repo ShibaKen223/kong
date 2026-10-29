@@ -48,7 +48,7 @@ jobs:
 
       - name: Self-test from source
         continue-on-error: true  # the report step below decides
-        run: python -m kong selftest --out selftest-source.json --wav test-zh.wav
+        run: python -m kong selftest --out selftest-source.json --wav test-zh.wav --qwen
 
       - name: Build
         run: |
@@ -59,7 +59,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist\Kong\Kong.exe -ArgumentList 'selftest','--out','selftest-frozen.json','--wav','test-zh.wav' -Wait -PassThru
+          $p = Start-Process -FilePath dist\Kong\Kong.exe -ArgumentList 'selftest','--out','selftest-frozen.json','--wav','test-zh.wav','--qwen' -Wait -PassThru
           Get-Content selftest-frozen.json
           if ($p.ExitCode -ne 0) { exit 1 }
 
@@ -71,12 +71,17 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\Kong -DestinationPath Kong-windows-x64.zip
 
+      # The artifact download is itself a zip: upload the folder so users unzip only once.
       - uses: actions/upload-artifact@v4
         with:
           name: Kong-windows-x64
-          path: |
-            Kong-windows-x64.zip
-            selftest-*.json
+          path: dist/Kong
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-reports
+          path: selftest-*.json
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')

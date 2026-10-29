@@ -29,6 +29,11 @@ class History:
             except OSError:
                 pass
 
+    def items(self) -> list[dict]:
+        """Newest first."""
+        with self._lock:
+            return list(reversed(self._items))
+
     def has_items(self) -> bool:
         return bool(self._items)
 

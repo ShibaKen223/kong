@@ -19,6 +19,7 @@ class SenseVoice:
     id = "sensevoice"
     label = "SenseVoice（CPU）"
     live_preview = True
+    incremental = False
 
     def __init__(self, model_dir: Path, threads: int | None = None) -> None:
         import sherpa_onnx

@@ -74,6 +74,8 @@ class Tray:
         app = self.app
         cfg = app.cfg
         has_gpu = app.gpu is not None and app.gpu.usable
+        # default=True: a left click on the tray icon opens the main window.
+        yield pystray.MenuItem("開啟 Kong 主視窗", lambda icon, it: app.show_main(), default=True)
         yield pystray.MenuItem(f"{DISPLAY_NAME} {__version__}", None, enabled=False)
         yield pystray.MenuItem(f"辨識：{app.engine_status}", None, enabled=False)
         yield pystray.MenuItem(f"整理：{app.polish_status}", None, enabled=False)

@@ -21,6 +21,7 @@ class WhisperGPU:
     id = "whisper_gpu"
     label = "Whisper（NVIDIA 顯示卡）"
     live_preview = True
+    incremental = False
 
     def __init__(self, model_dir: Path, compute_type: str = "float16") -> None:
         from faster_whisper import WhisperModel

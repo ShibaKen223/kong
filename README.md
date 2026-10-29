@@ -4,6 +4,17 @@
 
 受 Mac 上的 [Talky](https://github.com/intentionltd888/talky) 啟發而做的獨立專案，跟 Talky 或 INTENTION® 沒有關係，也沒有用到它的程式碼。
 
+## 主視窗
+
+雙擊 `Kong.exe`（或點右下角系統匣的 Kong 圖示）會打開主視窗：
+
+- **首頁**：現在用哪個辨識引擎、有沒有顯示卡、Claude Code 整理是否正常。按「**測試整理**」會直接告訴你整理為什麼沒成功；「**試講一句**」可以講一句話，看辨識和整理的結果（不會貼到別的地方）。
+- **設定**：辨識引擎、整理方式、Claude 模型、快捷鍵、貼上方式、開機自動啟動。
+- **最近說過的話**：最近 20 句，按兩下就複製。
+- **常用詞**：人名、公司名、專有名詞，整理時優先用這些寫法。
+
+關掉視窗 Kong 還是在背景待命；再雙擊一次 `Kong.exe` 就會把視窗叫回來。
+
 ## 三步
 
 1. 在任何文字框（記事本、瀏覽器、LINE、VS Code、終端機）**連按兩下右 Ctrl**。螢幕下方出現面板，邊講邊出字。
@@ -20,7 +31,7 @@
 
 ## 安裝
 
-1. 到 [Releases](../../releases) 下載 `Kong-windows-x64.zip`，解壓縮到你想放的地方（例如「文件\Kong」）。
+1. 到 [Releases](../../releases) 下載 `Kong-windows-x64.zip`（或 [Actions](../../actions) 最新一次成功建置的 Artifacts），解壓縮到你想放的地方（例如「文件\Kong」）。
 2. 雙擊 `Kong.exe`。因為還沒有程式碼簽章，Windows 可能會跳出「Windows 已保護您的電腦」：按「其他資訊」→「仍要執行」。
 3. 第一次開啟會下載語音模型（163 MB），下載完就能離線辨識。
 4. 右下角系統匣出現藍色麥克風圖示，就可以開始用了。想要開機自動啟動：圖示按右鍵 →「開機時自動啟動」。
@@ -39,12 +50,13 @@ Talky 每講一句都重新啟動一次 Claude Code，光啟動就要好幾秒�
 
 ## 辨識引擎
 
-| 電腦 | 引擎 | 說明 |
+| 引擎 | 適合 | 說明 |
 |---|---|---|
-| 一般電腦（沒有 NVIDIA 顯示卡） | **SenseVoice**（CPU） | 很快，純中文很準；中英夾雜時偶爾把英文聽錯，整理時會修正大部分 |
-| 有 NVIDIA 顯示卡（4 GB 以上） | **Whisper large-v3-turbo**（GPU） | 中英夾雜最準。第一次需另外下載約 2 GB |
+| **SenseVoice**（CPU） | 任何電腦，預設 | 最快（一句不到半秒），163 MB；碰到口音、講很快、中英夾雜時比較容易錯，整理時會修正大部分 |
+| **Qwen3-ASR**（CPU） | 沒有顯示卡但想更準 | 口音、講很快、有雜音時準很多；每句多等 1～3 秒，另外下載約 880 MB。講話時先用 SenseVoice 顯示文字，講完用 Qwen3-ASR 定稿；你停頓時會先把前面講完的部分辨識掉，長段落講完不用等太久 |
+| **Whisper large-v3-turbo**（GPU） | 有 NVIDIA 顯示卡（4 GB 以上） | Talky 用的同一個模型，又快又準；另外下載約 2 GB |
 
-預設「自動」：偵測到可用的 NVIDIA 顯示卡就問你要不要下載 Whisper；下載期間照常用 SenseVoice，下載完自動切換。
+預設「自動」：偵測到可用的 NVIDIA 顯示卡就問你要不要下載 Whisper；下載期間照常用 SenseVoice，下載完自動切換。在主視窗的「設定」可以隨時換。
 
 ## 整理：用你自己的 Claude 訂閱
 
@@ -117,4 +129,4 @@ pyinstaller packaging/kong.spec --noconfirm
 
 ## 用到的開源專案
 
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0）、[SenseVoice](https://github.com/FunAudioLLM/SenseVoice) 模型（[FunASR Model License](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)）、[faster-whisper](https://github.com/SYSTRAN/faster-whisper)（MIT）、[CTranslate2](https://github.com/OpenNMT/CTranslate2)（MIT）、Whisper large-v3-turbo 模型（MIT）、[OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0）、[pynput](https://github.com/moses-palmer/pynput) 與 [pystray](https://github.com/moses-palmer/pystray)（LGPL-3.0）、[python-sounddevice](https://github.com/spatialaudio/python-sounddevice)／PortAudio（MIT）、[Pillow](https://github.com/python-pillow/Pillow)、[NumPy](https://numpy.org)、[PyAV](https://github.com/PyAV-Org/PyAV)（FFmpeg，LGPL）。NVIDIA cuBLAS 不隨 Kong 散布：選用顯示卡模式時，從 PyPI 上 NVIDIA 官方套件直接下載到你的電腦。
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0）、[SenseVoice](https://github.com/FunAudioLLM/SenseVoice) 模型（[FunASR Model License](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)）、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) 模型（Apache-2.0）、[Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)（MIT）、[faster-whisper](https://github.com/SYSTRAN/faster-whisper)（MIT）、[CTranslate2](https://github.com/OpenNMT/CTranslate2)（MIT）、Whisper large-v3-turbo 模型（MIT）、[OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0）、[pynput](https://github.com/moses-palmer/pynput) 與 [pystray](https://github.com/moses-palmer/pystray)（LGPL-3.0）、[python-sounddevice](https://github.com/spatialaudio/python-sounddevice)／PortAudio（MIT）、[Pillow](https://github.com/python-pillow/Pillow)、[NumPy](https://numpy.org)、[PyAV](https://github.com/PyAV-Org/PyAV)（FFmpeg，LGPL）。NVIDIA cuBLAS 不隨 Kong 散布：選用顯示卡模式時，從 PyPI 上 NVIDIA 官方套件直接下載到你的電腦。

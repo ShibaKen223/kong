@@ -22,7 +22,8 @@ HOTKEYS = {
 ENGINES = {
     "auto": "自動（有 NVIDIA 顯示卡就用 Whisper）",
     "sensevoice": "SenseVoice（CPU，最快）",
-    "whisper_gpu": "Whisper（NVIDIA 顯示卡，中英夾雜較準）",
+    "qwen3": "Qwen3-ASR（CPU，高準確度，每句多等 1～3 秒）",
+    "whisper_gpu": "Whisper（NVIDIA 顯示卡，又快又準）",
 }
 
 POLISH_MODES = {

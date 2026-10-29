@@ -107,6 +107,34 @@ WHISPER_TURBO = ModelSpec(
     approx_mb=1620,
 )
 
+_QWEN3 = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/"
+QWEN3_ASR = ModelSpec(
+    id="qwen3-asr-0.6b-int8-2026-03-25",
+    label="Qwen3-ASR 高準確度模型",
+    kind="tar",
+    sources=(
+        Source(
+            _GH + "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+            "qwen3-asr.tar.bz2",
+            size=878702423,
+            sha256="393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+        ),
+    ),
+    # The tokenizer files are flattened next to the models; the folder doubles as tokenizer dir.
+    keep=tuple(
+        _QWEN3 + n
+        for n in (
+            "conv_frontend.onnx",
+            "encoder.int8.onnx",
+            "decoder.int8.onnx",
+            "tokenizer/merges.txt",
+            "tokenizer/tokenizer_config.json",
+            "tokenizer/vocab.json",
+        )
+    ),
+    approx_mb=880,
+)
+
 # ctranslate2's Windows wheel loads cublas64_12.dll at runtime but does not ship it.
 CUBLAS = ModelSpec(
     id="cuda12-cublas-12.4.5.8",

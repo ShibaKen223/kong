@@ -139,6 +139,17 @@ def is_dead_mic(audio: np.ndarray) -> bool:
     return len(audio) > 0 and not np.any(audio)
 
 
+def speech_threshold(rms: np.ndarray) -> float:
+    """Frame loudness above which we call it speech.
+
+    Relative to the quiet parts of the clip, but capped by its loud parts: a clip that is all
+    speech (no pauses, or a noisy room) must not end up counted as all silence.
+    """
+    quiet = float(np.percentile(rms, 10))
+    loud = float(np.percentile(rms, 90))
+    return max(0.004, min(quiet * 3, loud * 0.3))
+
+
 def trim_silence(audio: np.ndarray, sr: int = SR, pad_s: float = 0.25) -> np.ndarray:
     """Cut quiet head and tail: less to decode, and Whisper invents fewer words on silence."""
     frame = int(sr * 0.02)
@@ -146,8 +157,7 @@ def trim_silence(audio: np.ndarray, sr: int = SR, pad_s: float = 0.25) -> np.nda
     if n < 3:
         return audio
     rms = np.sqrt(np.mean(audio[: n * frame].reshape(n, frame) ** 2, axis=1))
-    floor = max(float(np.percentile(rms, 10)) * 3, 0.004)
-    loud = np.nonzero(rms > floor)[0]
+    loud = np.nonzero(rms > speech_threshold(rms))[0]
     if len(loud) == 0:
         return audio[:0]
     pad = int(pad_s / 0.02)

@@ -18,7 +18,7 @@ def delvewheel_libs(pkg):
     return [(f, pkg + ".libs") for f in glob.glob(os.path.join(libs, "*.dll"))]
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("sherpa_onnx", "opencc", "ctranslate2", "faster_whisper", "tokenizers", "av", "sounddevice", "_sounddevice_data"):
+for pkg in ("sherpa_onnx", "opencc", "ctranslate2", "faster_whisper", "tokenizers", "av", "sounddevice", "_sounddevice_data", "sv_ttk"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
@@ -26,7 +26,7 @@ for pkg in ("sherpa_onnx", "opencc", "ctranslate2", "faster_whisper", "tokenizer
 for pkg in ("opencc", "sherpa_onnx", "ctranslate2", "av", "tokenizers", "numpy"):
     binaries += delvewheel_libs(pkg)
 hiddenimports += collect_submodules("kong")
-hiddenimports += ["pynput.keyboard._win32", "pynput.mouse._win32", "pystray._win32"]
+hiddenimports += ["pynput.keyboard._win32", "pynput.mouse._win32", "pystray._win32", "PIL.ImageTk"]
 
 a = Analysis(
     [os.path.join(HERE, "launcher.py")],

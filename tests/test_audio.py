@@ -34,3 +34,12 @@ def test_split_long_cuts_at_quiet_points():
     assert len(parts) >= 3
     assert sum(len(p) for p in parts) == len(clip)
     assert all(len(p) <= 25 * sr for p in parts)
+
+
+def test_continuous_speech_is_not_trimmed_away():
+    # No pauses at all (fast talker, noisy room): nothing may be cut as "silence".
+    t = np.arange(audio.SR * 3)
+    clip = (0.2 * np.sin(t * 0.07) * (1 + 0.3 * np.sin(t * 0.0013))).astype(np.float32)
+    out = audio.trim_silence(clip)
+    assert len(out) > 0.95 * len(clip)
+    assert not audio.is_silent(out)

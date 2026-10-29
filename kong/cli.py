@@ -46,6 +46,11 @@ def _read_wav(path: str):
 
 
 def _engine(kind: str):
+    if kind == "qwen3":
+        from .stt.qwen3 import Qwen3ASR
+
+        models.install(models.QWEN3_ASR)
+        return Qwen3ASR(models.QWEN3_ASR.dir)
     if kind == "whisper_gpu":
         from . import gpu
         from .stt.whisper_gpu import WhisperGPU
@@ -152,6 +157,24 @@ def cmd_selftest(args) -> None:
         return v
 
     check("tkinter", tk_window)
+
+    def theme():
+        import tkinter as tk
+
+        import sv_ttk
+        from PIL import ImageTk
+
+        from .ui.icon import mic_icon
+
+        r = tk.Tk()
+        r.withdraw()
+        sv_ttk.set_theme("light", root=r)
+        ImageTk.PhotoImage(mic_icon("idle", 32), master=r)
+        v = sv_ttk.get_theme(r)
+        r.destroy()
+        return v
+
+    check("theme", theme)
     if sys.platform == "win32":
         from . import win32
 
@@ -169,6 +192,13 @@ def cmd_selftest(args) -> None:
             return textproc.basic_cleanup(eng.transcribe(_read_wav(args.wav)))
 
         check("sensevoice", stt)
+        if args.qwen:
+
+            def qwen():
+                eng = _engine("qwen3")
+                return textproc.basic_cleanup(eng.transcribe(_read_wav(args.wav)))
+
+            check("qwen3", qwen)
     check("models_dir", lambda: str(paths.models_dir()))
     text = json.dumps(report, ensure_ascii=False, indent=1)
     if args.out:
@@ -199,7 +229,7 @@ def main(argv: list[str]) -> None:
     sub.add_parser("version")
     p = sub.add_parser("transcribe")
     p.add_argument("wav", nargs="+")
-    p.add_argument("--engine", default="sensevoice", choices=["sensevoice", "whisper_gpu"])
+    p.add_argument("--engine", default="sensevoice", choices=["sensevoice", "qwen3", "whisper_gpu"])
     p.add_argument("--polish", action="store_true")
     p = sub.add_parser("polish")
     p.add_argument("text", nargs="+")
@@ -208,6 +238,7 @@ def main(argv: list[str]) -> None:
     p = sub.add_parser("selftest")
     p.add_argument("--out")
     p.add_argument("--wav")
+    p.add_argument("--qwen", action="store_true", help="also download and run Qwen3-ASR (880 MB)")
     args = ap.parse_args(argv)
     if args.cmd == "doctor":
         from . import doctor

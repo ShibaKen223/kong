@@ -437,6 +437,43 @@ def single_instance(name: str) -> bool:
     return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
 
 
+_CreateEventW = _fn(kernel32, "CreateEventW", wintypes.HANDLE, wintypes.LPVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR)
+_OpenEventW = _fn(kernel32, "OpenEventW", wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR)
+_SetEvent = _fn(kernel32, "SetEvent", wintypes.BOOL, wintypes.HANDLE)
+_WaitForSingleObject = _fn(kernel32, "WaitForSingleObject", wintypes.DWORD, wintypes.HANDLE, wintypes.DWORD)
+EVENT_MODIFY_STATE = 0x0002
+INFINITE = 0xFFFFFFFF
+
+
+def create_event(name: str):
+    """A named auto-reset event another process can signal (see signal_event)."""
+    return _CreateEventW(None, False, False, name)
+
+
+def wait_event(handle) -> None:
+    _WaitForSingleObject(handle, INFINITE)
+
+
+def signal_event(name: str) -> bool:
+    h = _OpenEventW(EVENT_MODIFY_STATE, False, name)
+    if not h:
+        return False
+    try:
+        return bool(_SetEvent(h))
+    finally:
+        _CloseHandle(h)
+
+
+def apps_use_dark_theme() -> bool:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+            return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+    except OSError:
+        return False
+
+
 MB_OK = 0x0
 MB_YESNO = 0x4
 MB_ICONINFORMATION = 0x40

@@ -13,6 +13,8 @@ class Engine(Protocol):
     label: str
     # Fast enough to re-run every second while you talk.
     live_preview: bool
+    # Slow enough that finished stretches should be recognised while you are still talking.
+    incremental: bool
 
     def transcribe(self, audio: np.ndarray, glossary: list[str] | None = None) -> str: ...
 
