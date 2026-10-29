@@ -14,8 +14,8 @@ jobs:
   test-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install numpy==2.5.4 opencc==1.4.2 pytest==8.4.2
@@ -26,9 +26,10 @@ jobs:
     env:
       # The runner context is not available at job level; github is.
       KONG_HOME: ${{ github.workspace }}\kong-home
+      PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -46,6 +47,7 @@ jobs:
           mv sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav test-zh.wav
 
       - name: Self-test from source
+        continue-on-error: true  # the report step below decides
         run: python -m kong selftest --out selftest-source.json --wav test-zh.wav
 
       - name: Build
@@ -54,11 +56,16 @@ jobs:
           pyinstaller packaging/kong.spec --noconfirm
 
       - name: Self-test the built Kong.exe
+        continue-on-error: true
         shell: pwsh
         run: |
           $p = Start-Process -FilePath dist\Kong\Kong.exe -ArgumentList 'selftest','--out','selftest-frozen.json','--wav','test-zh.wav' -Wait -PassThru
           Get-Content selftest-frozen.json
           if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Report self-test results
+        if: always()
+        run: python tools/ci_annotate.py selftest-source.json selftest-frozen.json
 
       - name: Package
         shell: pwsh

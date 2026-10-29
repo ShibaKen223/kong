@@ -179,7 +179,17 @@ def cmd_selftest(args) -> None:
         raise SystemExit(1)
 
 
+def _utf8_console() -> None:
+    # Windows consoles and CI pipes default to a legacy code page that cannot print Chinese.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str]) -> None:
+    _utf8_console()
     from . import log as klog
 
     klog.setup(to_stderr=True)
