@@ -24,7 +24,8 @@ jobs:
   windows:
     runs-on: windows-latest
     env:
-      KONG_HOME: ${{ runner.temp }}\kong-home
+      # The runner context is not available at job level; github is.
+      KONG_HOME: ${{ github.workspace }}\kong-home
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
