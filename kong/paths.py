@@ -72,3 +72,39 @@ def claude_workdir() -> Path:
 def desktop_dir() -> Path:
     d = Path.home() / "Desktop"
     return d if d.is_dir() else Path.home()
+
+
+def _known_folder(guid: str) -> Path | None:
+    """A Windows shell folder where it really is (OneDrive often moves Documents)."""
+    import ctypes
+    import uuid
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("data", ctypes.c_ubyte * 16)]
+
+    g = GUID()
+    ctypes.memmove(g.data, uuid.UUID(guid).bytes_le, 16)
+    out = ctypes.c_wchar_p()
+    try:
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) != 0:
+            return None
+        return Path(out.value)
+    except (OSError, AttributeError):
+        return None
+    finally:
+        if out:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+
+
+def documents_dir() -> Path:
+    if (h := _home_override()) is not None:
+        return _ensure(h / "documents")
+    if IS_WINDOWS and (d := _known_folder("FDD39AD0-238F-46AF-ADB4-6C85480369C7")) is not None:
+        return d
+    d = Path.home() / "Documents"
+    return d if d.is_dir() else Path.home()
+
+
+def meetings_dir(override: str = "") -> Path:
+    """會議記錄 go to Documents\\Kong 會議記錄 unless the user picked another folder."""
+    return _ensure(Path(override) if override else documents_dir() / "Kong 會議記錄")

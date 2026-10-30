@@ -107,6 +107,18 @@ class Recorder:
             audio = audio[-int(last_s * self._sr):]
         return resample(audio, self._sr)
 
+    def take(self) -> np.ndarray:
+        """The audio since the last take (or the start), at 16 kHz, and forget it.
+
+        For long recordings: an hour held at the device's own rate can be most of a gigabyte.
+        `elapsed()` keeps counting from the start.
+        """
+        with self._lock:
+            chunks, self._chunks = self._chunks, []
+        if not chunks:
+            return np.zeros(0, dtype=np.float32)
+        return resample(np.concatenate(chunks), self._sr)
+
     def _close(self) -> None:
         s, self._stream = self._stream, None
         if s is not None:

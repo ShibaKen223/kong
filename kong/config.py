@@ -64,6 +64,11 @@ class Config:
     max_record_s: int = 300
     cjk_latin_space: bool = True
 
+    # 會議記錄: where the files go ("" = Documents\Kong 會議記錄) and whether to keep a .wav.
+    meeting_dir: str = ""
+    meeting_keep_audio: bool = False
+    meeting_max_hours: float = 4.0
+
     # Off by default: the log never contains what you said.
     log_text: bool = False
 
@@ -106,6 +111,7 @@ class Config:
             self.paste_method = "clipboard"
         self.double_tap_ms = max(200, min(int(self.double_tap_ms), 800))
         self.max_record_s = max(10, min(int(self.max_record_s), 1800))
+        self.meeting_max_hours = max(0.25, min(float(self.meeting_max_hours), 8.0))
 
     def save(self, path: Path | None = None) -> None:
         path = path or paths.config_file()

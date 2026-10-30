@@ -53,7 +53,7 @@ def script():
         time.sleep(0.2)
     time.sleep(1.5)
     on_tk(shot, "1-home")
-    for i, name in ((1, "2-settings"), (2, "3-history"), (3, "4-glossary")):
+    for i, name in ((1, "2-meeting"), (2, "3-settings"), (3, "4-history"), (4, "5-glossary")):
         on_tk(mw.nb.select, i)
         time.sleep(0.5)
         on_tk(shot, name)

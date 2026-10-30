@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from PIL import ImageTk
 
-from .. import DISPLAY_NAME, __version__, models, paths, textproc
+from .. import DISPLAY_NAME, __version__, meeting, models, paths, textproc
 from ..config import ENGINES, HOTKEYS, PASTE_METHODS, POLISH_MODES
 from ..polish import prompt
 from . import theme
@@ -54,6 +54,7 @@ class MainWindow:
         self.nb = ttk.Notebook(w)
         self.nb.pack(fill="both", expand=True, padx=18, pady=(14, 0))
         self._build_home()
+        self._build_meeting()
         self._build_settings()
         self._build_history()
         self._build_glossary()
@@ -142,7 +143,7 @@ class MainWindow:
         app = self.app
         if app.models_missing:
             return "error"
-        return {"idle": "ok", "recording": "listen", "testing": "listen"}.get(app.state, "work")
+        return {"idle": "ok", "recording": "listen", "testing": "listen", "meeting": "listen"}.get(app.state, "work")
 
     def _draw_block(self) -> None:
         kind = self._state_kind()
@@ -227,10 +228,10 @@ class MainWindow:
         rows = ttk.Frame(f)
         rows.pack(fill="x", pady=(6, 0))
         rows.columnconfigure(1, weight=1)
-        self.r_engine = self._row(rows, 0, "語音辨識", "變更", lambda: self.nb.select(1))
+        self.r_engine = self._row(rows, 0, "語音辨識", "變更", lambda: self.nb.select(2))
         self.r_gpu = self._row(rows, 1, "顯示卡")
         self.r_polish = self._row(rows, 2, "整理", "測試整理", self._test_polish)
-        self.r_gloss = self._row(rows, 3, "常用詞", "編輯", lambda: self.nb.select(3))
+        self.r_gloss = self._row(rows, 3, "常用詞", "編輯", lambda: self.nb.select(4))
         self.h_tip = ttk.Label(f, text="", style="Hint.TLabel", wraplength=700, justify="left")
         self.h_tip.pack(anchor="w", pady=(8, 0))
         self.h_tip_btn = ttk.Button(f, text="改用 Qwen3-ASR", command=lambda: self.app.set_option("engine", "qwen3"))
@@ -319,6 +320,86 @@ class MainWindow:
         from ..app import POLISH_SAMPLE
 
         return POLISH_SAMPLE
+
+    # --- 會議記錄 ---------------------------------------------------------------------------
+
+    def _build_meeting(self) -> None:
+        f = ttk.Frame(self.nb, padding=(4, 16, 4, 12))
+        self.nb.add(f, text="會議記錄")
+        self._section(
+            f, "01", "會議記錄",
+            "錄一整場會議：邊錄邊轉成文字，結束後請 Claude 整理出摘要、決議和待辦事項，存成 Markdown 檔。錄音期間不能聽寫。",
+        )
+        bar = ttk.Frame(f)
+        bar.pack(fill="x", pady=(10, 8))
+        self.m_btn = ttk.Button(bar, text="● 開始會議記錄", style="Accent.TButton", command=self._toggle_meeting)
+        self.m_btn.pack(side="left")
+        self.m_state = ttk.Label(bar, text="", style="Sub.TLabel")
+        self.m_state.pack(side="left", padx=12)
+        ttk.Button(bar, text="開啟資料夾", command=self.app.open_meetings).pack(side="right")
+        self.m_out = tk.Text(f, height=10, wrap="word", font=(FONT, 11), relief="flat", padx=12, pady=10, borderwidth=0,
+                             **self._text_colors)
+        self.m_out.pack(fill="both", expand=True)
+        self._set_meeting_text("開始後，轉好的文字會一段一段出現在這裡。")
+
+        ttk.Separator(f).pack(fill="x", pady=14)
+        self._section(f, "02", "設定")
+        self.v_keep_audio = tk.BooleanVar(value=self.app.cfg.meeting_keep_audio)
+        ttk.Checkbutton(f, text="保留錄音檔（.wav，一小時約 110 MB）", variable=self.v_keep_audio,
+                        command=lambda: self.app.set_option("meeting_keep_audio", self.v_keep_audio.get())).pack(anchor="w", pady=(6, 0))
+        self.m_where = ttk.Label(f, text="", style="Hint.TLabel", wraplength=720, justify="left")
+        self.m_where.pack(anchor="w", pady=(6, 0))
+        ttk.Label(
+            f,
+            text="只錄得到麥克風聽見的聲音：線上會議請讓喇叭外放，戴耳機時對方的聲音不會被錄進去。",
+            style="Hint.TLabel", wraplength=720, justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+        self._meeting_seen = None
+        self._meeting_lines = 0
+
+    def _set_meeting_text(self, text: str) -> None:
+        self.m_out.configure(state="normal")
+        self.m_out.delete("1.0", "end")
+        self.m_out.insert("1.0", text)
+        self.m_out.configure(state="disabled")
+
+    def _toggle_meeting(self) -> None:
+        if self.app.state == "meeting":
+            self.app.stop_meeting()
+        else:
+            err = self.app.start_meeting()
+            if err:
+                self.m_state.configure(text=err)
+                return
+        self._refresh_meeting()
+
+    def _refresh_meeting(self) -> None:
+        app = self.app
+        m, state = app.meeting, app.state
+        if m is not None and m is not self._meeting_seen:
+            self._meeting_seen, self._meeting_lines = m, 0
+            self._set_meeting_text("")
+        if m is not None and len(m.lines) > self._meeting_lines:
+            new = m.lines[self._meeting_lines:]
+            self._meeting_lines += len(new)
+            self.m_out.configure(state="normal")
+            for ln in new:
+                self.m_out.insert("end", f"[{meeting.stamp(ln.t)}] {ln.text}\n")
+            self.m_out.see("end")
+            self.m_out.configure(state="disabled")
+        if state == "meeting" and m is not None:
+            self.m_btn.configure(text="■ 結束並整理", state="normal")
+            self.m_state.configure(text=f"錄音中 {meeting.stamp(m.elapsed())}・已轉成 {m.chars:,} 字")
+        elif state == "saving":
+            self.m_btn.configure(text="整理中…", state="disabled")
+            self.m_state.configure(text="辨識最後一段、請 Claude 寫重點，好了會打開檔案")
+        else:
+            self.m_btn.configure(text="● 開始會議記錄", state="normal" if state == "idle" else "disabled")
+            last = app.last_meeting
+            self.m_state.configure(text=f"上一場：{last.name}" if last else "")
+        self.m_where.configure(text=f"存放位置：{paths.meetings_dir(app.cfg.meeting_dir)}")
+        if self.v_keep_audio.get() != app.cfg.meeting_keep_audio:
+            self.v_keep_audio.set(app.cfg.meeting_keep_audio)
 
     # --- 設定 -----------------------------------------------------------------------------
 
@@ -522,6 +603,7 @@ class MainWindow:
 
         self._sync_settings()
         self._fill_history()
+        self._refresh_meeting()
 
     def _sync_settings(self) -> None:
         """The tray menu changes settings too: show what is really in effect."""

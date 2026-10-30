@@ -54,6 +54,11 @@ class Tray:
         except Exception:
             pass
 
+    def _start_meeting(self) -> None:
+        err = self.app.start_meeting()
+        if err:
+            self.app.panel.show("error", "沒辦法開始會議記錄", err, hide_after=5)
+
     # --- menu ------------------------------------------------------------------------------
 
     def _radio(self, title: str, options: dict[str, str], key: str, enabled=lambda v: True):
@@ -81,6 +86,14 @@ class Tray:
         yield pystray.MenuItem(f"整理：{app.polish_status}", None, enabled=False)
         if app.download_status:
             yield pystray.MenuItem(app.download_status, None, enabled=False)
+        yield pystray.Menu.SEPARATOR
+        if app.state == "meeting":
+            yield pystray.MenuItem("■ 結束會議記錄並整理", lambda icon, it: app.stop_meeting())
+        elif app.state == "saving":
+            yield pystray.MenuItem("整理會議記錄中…", None, enabled=False)
+        else:
+            yield pystray.MenuItem("● 開始會議記錄", lambda icon, it: self._start_meeting(), enabled=app.state == "idle")
+        yield pystray.MenuItem("開啟會議記錄資料夾", lambda icon, it: app.open_meetings())
         yield pystray.Menu.SEPARATOR
         yield self._radio("整理方式", POLISH_MODES, "polish")
         yield self._radio("Claude 模型", CLAUDE_MODELS, "claude_model")

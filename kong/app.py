@@ -6,6 +6,7 @@ Threads:
   hotkey      the low-level keyboard hook; only posts events
   controller  turns hotkey events into state changes, one at a time
   process     one per dictation: recognise, tidy, paste
+  meeting     while a 會議記錄 runs: recognises it piece by piece (see meeting.py)
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from typing import Callable
 
-from . import DISPLAY_NAME, __version__, audio, doctor, gpu, models, paths, textproc
+from . import DISPLAY_NAME, __version__, audio, doctor, gpu, meeting, models, paths, textproc
 from .config import HOTKEYS, Config
 from .history import History
 from .hotkey import HotkeyListener
@@ -63,7 +64,7 @@ class Outcome:
 class App:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self.state = "loading"  # loading | idle | recording | testing | busy
+        self.state = "loading"  # loading | idle | recording | testing | busy | meeting | saving
         self.engine = None
         self._sensevoice = None  # live preview when the main engine is too slow for it
         self.gpu: gpu.GpuInfo | None = None
@@ -87,6 +88,8 @@ class App:
         self.tray: Tray | None = None
         self.main_window = None
         self.hotkey: HotkeyListener | None = None
+        self.meeting: meeting.Meeting | None = None
+        self.last_meeting = None
 
     # --- status shown in the tray menu and the main window ------------------------------
 
@@ -115,11 +118,19 @@ class App:
             return "試講中", "講完按「停止」。"
         if self.state == "busy":
             return "處理中…", ""
+        if self.state == "meeting" and self.meeting is not None:
+            m = self.meeting
+            return "會議記錄中", f"已錄 {meeting.stamp(m.elapsed())}，轉成 {m.chars:,} 字。結束時在「會議記錄」按「結束並整理」。"
+        if self.state == "saving":
+            return "整理會議記錄中…", "辨識最後一段、請 Claude 寫重點，好了會打開檔案。"
         return "準備好了", f"在任何文字框連按兩下「{hk}」開始說話，講完再按一下。Esc 可以取消。"
 
     def _set_state(self, state: str, tooltip: str | None = None) -> None:
         self.state = state
-        tray_state = {"idle": "idle", "recording": "recording", "testing": "recording", "busy": "busy"}.get(state, "loading")
+        tray_state = {
+            "idle": "idle", "recording": "recording", "testing": "recording", "meeting": "recording",
+            "busy": "busy", "saving": "busy",
+        }.get(state, "loading")
         if self.tray is not None:
             self.tray.set_state("error" if self.models_missing else tray_state, tooltip or self.headline()[0])
 
@@ -176,6 +187,7 @@ class App:
     def _shutdown(self) -> None:
         log.info("shutting down")
         for step in (
+            self._save_meeting_on_exit,
             lambda: self.hotkey and self.hotkey.stop(),
             self.polisher.shutdown,
             self.recorder.cancel,
@@ -391,11 +403,15 @@ class App:
                     elif ev == f"timeout:{self._rec_token}" and self.state in ("recording", "testing"):
                         if self.state == "recording":
                             self._stop_recording()
+                    elif ev == "meeting_limit" and self.state == "meeting":
+                        self.stop_meeting()
             except Exception:
                 log.exception("handling %s failed", ev)
 
     def _on_double(self) -> None:
-        if self.state == "idle":
+        if self.state in ("meeting", "saving"):
+            self.panel.show("info", "會議記錄中", "會議記錄和聽寫共用麥克風，結束會議記錄後才能聽寫。", hide_after=3)
+        elif self.state == "idle":
             self._start_recording()
         elif self.state == "recording":
             self._stop_recording()
@@ -615,6 +631,115 @@ class App:
         except Exception as e:
             log.exception("dictation failed")
             self._finish(cancel, "error", "出錯了", str(e)[:200], hint="可以在 Kong 主視窗匯出診斷檔", hide=8)
+
+    # --- 會議記錄 ---------------------------------------------------------------------------
+
+    def start_meeting(self) -> str | None:
+        """Returns an error message, or None once recording has started."""
+        with self._lock:
+            if self.engine is None:
+                return "語音模型還沒準備好"
+            if self.state != "idle":
+                return "Kong 正在忙，稍後再試"
+            err = self._open_mic()
+            if err:
+                return f"麥克風打不開：{err}"
+            cfg = self.cfg
+            try:
+                self.meeting = meeting.Meeting(
+                    self.recorder,
+                    self.engine,
+                    paths.meetings_dir(cfg.meeting_dir),
+                    glossary=prompt.load_glossary(paths.glossary_file()),
+                    cjk_space=cfg.cjk_latin_space,
+                    keep_audio=cfg.meeting_keep_audio,
+                    max_s=cfg.meeting_max_hours * 3600,
+                    on_limit=lambda: self._events.put("meeting_limit"),
+                )
+            except OSError as e:
+                self.recorder.cancel()
+                return f"會議記錄資料夾無法寫入：{e}"
+            self.meeting.start()
+            self._set_state("meeting", "會議記錄中")
+            log.info("meeting started (%s)", self.engine.id)
+        if cfg.polish == "claude_code":
+            self._start_polisher()
+        self.panel.show(
+            "info", "會議記錄開始", "邊錄邊轉成文字，結束時用 Claude 整理重點，存成檔案。",
+            hint="錄音期間不能聽寫・結束：主視窗「會議記錄」或系統匣選單", hide_after=5,
+        )
+        self.tray.refresh()
+        return None
+
+    def stop_meeting(self) -> None:
+        with self._lock:
+            m = self.meeting
+            if m is None or self.state != "meeting":
+                return
+            self._set_state("saving", "整理會議記錄中")
+        self.tray.refresh()
+        threading.Thread(target=self._finish_meeting, args=(m,), name="meeting-save", daemon=True).start()
+
+    def _finish_meeting(self, m: meeting.Meeting) -> None:
+        notes, err, path = "", "", None
+        try:
+            self.panel.show_working("會議記錄：辨識最後一段", f"已轉成 {m.chars:,} 字", hint="這段時間不能聽寫")
+            m.finish()
+            if not m.lines:
+                err = "沒有辨識到內容"
+            elif self.cfg.polish != "claude_code":
+                err = "整理方式是「不整理」"
+            else:
+                self._start_polisher()
+                for _ in range(60):  # finding Claude Code and starting it can take a few seconds
+                    if self.polisher.available or not self.polisher.status.startswith("尋找"):
+                        break
+                    time.sleep(0.25)
+                if not self.polisher.available:
+                    err = self.polisher.status
+                else:
+                    self.panel.show_working("請 Claude 整理會議重點", f"{m.chars:,} 字・長的會議要一兩分鐘", hint="這段時間不能聽寫")
+                    try:
+                        notes = self.polisher.complete(
+                            prompt.meeting_prompt(m.glossary),
+                            prompt.meeting_message(m.transcript()),
+                            meeting.notes_timeout(m.chars),
+                        )
+                    except PolishError as e:
+                        err = str(e)
+            path = m.write(notes, err, self.engine.label if self.engine else "")
+            log.info("meeting saved: %.0f s, %d chars, notes %s", m.elapsed(), m.chars, "ok" if notes else err)
+        except Exception as e:
+            log.exception("saving the meeting failed")
+            err = err or str(e)
+            try:
+                path = m.write(notes, err)
+            except Exception:
+                log.exception("writing the meeting file failed; the running transcript is kept")
+        with self._lock:
+            self.meeting = None
+            if self.state == "saving":
+                self._set_state("idle", self._idle_tooltip())
+        self.tray.refresh()
+        self.last_meeting = path
+        if path is None:
+            self.panel.show("error", "會議記錄存檔失敗", err[:200], hint="逐字稿在「Kong 會議記錄」資料夾的（錄音中）.txt", hide_after=10)
+            return
+        if notes:
+            self.panel.show("ok", "會議記錄已存好", path.name, hint="已經打開檔案", hide_after=5)
+        else:
+            self.panel.show("warn", "會議記錄已存好（沒有整理重點）", path.name, hint=err, hide_after=8)
+        _open_path(path)
+
+    def _save_meeting_on_exit(self) -> None:
+        """Quitting during a meeting keeps the transcript (without Claude's notes)."""
+        m, self.meeting = self.meeting, None
+        if m is not None:
+            m.finish()
+            m.write(note_error="會議還在錄的時候結束了 Kong", engine_label=self.engine.label if self.engine else "")
+
+    def open_meetings(self) -> None:
+        _open_path(paths.meetings_dir(self.cfg.meeting_dir))
 
     # --- tests from the main window (callbacks run on worker threads) -------------------
 
