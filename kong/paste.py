@@ -40,14 +40,17 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
         win32.type_text(text)
         return Result.TYPED
 
-    kind, old = ("empty", None)
+    kind, old, saved = ("empty", None, None)
     if restore:
         try:
             kind, old = win32.clipboard_snapshot()
+            if kind == "other":
+                # An image or files: keep a full copy to put back after pasting.
+                saved = win32.clipboard_save()
         except OSError as e:
             log.info("clipboard snapshot failed: %s", e)
-        if kind == "other":
-            # An image or files are on the clipboard: type instead, so they survive.
+        if kind == "other" and saved is None:
+            # Too large to hold: typing keeps it intact, but an input method can garble typing.
             win32.type_text(text)
             return Result.TYPED
 
@@ -56,14 +59,17 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
     if not win32.send_ctrl_v():
         return Result.CLIPBOARD
 
-    if restore and kind == "text" and old is not None:
+    if restore and ((kind == "text" and old is not None) or saved):
 
         def put_back():
             time.sleep(RESTORE_DELAY_S)
             # Only if nobody copied something else in the meantime.
             if win32.GetClipboardSequenceNumber() == seq:
                 try:
-                    win32.set_clipboard_text(old)
+                    if saved:
+                        win32.clipboard_restore(saved)
+                    else:
+                        win32.set_clipboard_text(old)
                 except OSError as e:
                     log.info("restoring the clipboard failed: %s", e)
 

@@ -20,7 +20,7 @@ from .. import DISPLAY_NAME, __version__, models, paths, textproc
 from ..config import ENGINES, HOTKEYS, PASTE_METHODS, POLISH_MODES
 from ..polish import prompt
 from . import theme
-from .icon import mic_icon
+from .icon import kong_icon
 from .panel import HISTORY, Painter, View
 from .tray import CLAUDE_MODELS
 
@@ -45,7 +45,7 @@ class MainWindow:
         w.geometry("820x780")
         w.minsize(700, 700)
         w.protocol("WM_DELETE_WINDOW", self.hide)
-        self._app_icon = ImageTk.PhotoImage(mic_icon("idle", 64))
+        self._app_icon = ImageTk.PhotoImage(kong_icon("idle", 64))
         w.iconphoto(False, self._app_icon)
         self._theme()
 

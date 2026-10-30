@@ -79,9 +79,9 @@ LINE_H = 31
 TEXT_PX = 21
 SMALL_PX = 12
 FOOTER_H = 34
-CELL = 19  # dot meter grid
+CELL = 10  # dot meter grid
 BOTTOM_GAP = 24  # card to the bottom of the work area
-HISTORY = 12  # voice level samples kept for the dot meter
+HISTORY = 24  # voice level samples kept for the dot meter
 
 FADE_IN_S = 0.14
 FADE_OUT_S = 0.18
@@ -278,27 +278,31 @@ class Painter:
         return img.resize((w, h), Image.LANCZOS)
 
     def _dot_meter(self, d: ImageDraw.ImageDraw, v: View, W: int, H: int, u: float) -> None:
-        """A grid of dots: each column is a moment of your voice, newest on the right."""
+        """A fine grid of dots: each column is a moment of your voice, newest on the right,
+        lit outward from the middle row like a waveform."""
         cell = CELL * u
-        pad = 12 * u
+        pad = 10 * u
         cols = max(3, int((W - 2 * pad) // cell))
         rows = max(3, int((H - 2 * pad) // cell))
         gx = (W - cols * cell) / 2
         gy = (H - rows * cell) / 2
         hist = (list(v.history) + [v.level])[-cols:]
         hist = [0.0] * (cols - len(hist)) + hist
-        rmax = cell * 0.42
+        mid = (rows - 1) / 2
+        rmax = cell * 0.36
         for ci, lv in enumerate(hist):
-            lit = lv * rows
+            reach = lv * (mid + 0.5)  # how far from the middle row this moment lights up
+            cx = gx + ci * cell + cell / 2
             for ri in range(rows):
-                cx = gx + ci * cell + cell / 2
-                cy = gy + (rows - 1 - ri) * cell + cell / 2  # from the bottom up
-                f = max(0.0, min(1.0, lit - ri))
+                cy = gy + ri * cell + cell / 2
+                f = max(0.0, min(1.0, reach - abs(ri - mid) + 0.5))
+                if ci == cols - 1 or lv > 0.02:
+                    f = max(f, 1.0 if abs(ri - mid) < 0.6 else 0.0)  # the middle row is always on
                 if f > 0.05:
-                    r = rmax * (0.35 + 0.65 * f)
+                    r = rmax * (0.45 + 0.55 * f)
                     d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=ORANGE)
                 else:
-                    r = rmax * 0.28
+                    r = rmax * 0.32
                     d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=DIM_DOT)
 
     def _bar(self, width: int, height: int, color, alpha: float) -> Image.Image:
@@ -500,7 +504,7 @@ class Panel:
             target = sum(self._levels) / len(self._levels)
             # Rise quickly with the voice, settle slowly: reads as alive, not jittery.
             v.level += (target - v.level) * (0.55 if target > v.level else 0.18)
-            if now - self._sampled >= 0.11:
+            if now - self._sampled >= 0.07:
                 self._sampled = now
                 v.history = (v.history + [v.level])[-HISTORY:]
             animating = True

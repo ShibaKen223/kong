@@ -164,13 +164,13 @@ def cmd_selftest(args) -> None:
         from PIL import ImageTk
 
         from .ui import theme as kong_theme
-        from .ui.icon import mic_icon
+        from .ui.icon import kong_icon
         from .ui.panel import Painter, View
 
         r = tk.Tk()
         r.withdraw()
         style = kong_theme.apply(r)
-        ImageTk.PhotoImage(mic_icon("idle", 32), master=r)
+        ImageTk.PhotoImage(kong_icon("idle", 32), master=r)
         ImageTk.PhotoImage(Painter().render(View("listen", "聽寫中", "測試")), master=r)
         v = style.theme_use()
         r.destroy()

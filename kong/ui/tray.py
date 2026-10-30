@@ -10,7 +10,7 @@ import pystray
 
 from .. import DISPLAY_NAME, __version__
 from ..config import ENGINES, HOTKEYS, PASTE_METHODS, POLISH_MODES
-from .icon import mic_icon
+from .icon import kong_icon
 
 if TYPE_CHECKING:
     from ..app import App
@@ -24,7 +24,7 @@ class Tray:
     def __init__(self, app: "App") -> None:
         self.app = app
         self.state = "loading"
-        self.icon = pystray.Icon("Kong", mic_icon("loading"), DISPLAY_NAME, menu=pystray.Menu(self._items))
+        self.icon = pystray.Icon("Kong", kong_icon("loading"), DISPLAY_NAME, menu=pystray.Menu(self._items))
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="tray", daemon=True).start()
@@ -44,7 +44,7 @@ class Tray:
     def set_state(self, state: str, tooltip: str | None = None) -> None:
         if state != self.state:
             self.state = state
-            self.icon.icon = mic_icon(state)
+            self.icon.icon = kong_icon(state)
         if tooltip is not None:
             self.icon.title = f"{DISPLAY_NAME}：{tooltip}"[:120]
 

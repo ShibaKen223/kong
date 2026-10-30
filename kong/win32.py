@@ -42,6 +42,7 @@ _GlobalAlloc = _fn(kernel32, "GlobalAlloc", wintypes.HGLOBAL, wintypes.UINT, cty
 _GlobalLock = _fn(kernel32, "GlobalLock", wintypes.LPVOID, wintypes.HGLOBAL)
 _GlobalUnlock = _fn(kernel32, "GlobalUnlock", wintypes.BOOL, wintypes.HGLOBAL)
 _GlobalFree = _fn(kernel32, "GlobalFree", wintypes.HGLOBAL, wintypes.HGLOBAL)
+_GlobalSize = _fn(kernel32, "GlobalSize", ctypes.c_size_t, wintypes.HGLOBAL)
 _CreateWindowExW = _fn(
     user32,
     "CreateWindowExW",
@@ -113,8 +114,61 @@ class Clipboard:
             _GlobalFree(h)
             raise OSError("SetClipboardData failed")
 
+    def get_all(self, max_bytes: int) -> list[tuple[int, bytes]] | None:
+        """Every format held in global memory, as bytes; None if it would exceed `max_bytes`.
+
+        Handle formats (bitmaps, metafiles, palettes, private GDI objects) are skipped: Windows
+        rebuilds CF_BITMAP from CF_DIB on its own, so an image survives as CF_DIB/CF_DIBV5.
+        """
+        out, total = [], 0
+        for f in self.formats():
+            if f in _HANDLE_FORMATS or 0x80 <= f <= 0x8F or 0x200 <= f <= 0x3FF:
+                continue
+            h = _GetClipboardData(f)
+            if not h:
+                continue
+            size = _GlobalSize(h)
+            total += size
+            if total > max_bytes:
+                return None
+            p = _GlobalLock(h) if size else None
+            if not p:
+                continue
+            try:
+                out.append((f, ctypes.string_at(p, size)))
+            finally:
+                _GlobalUnlock(h)
+        return out
+
+    def set_all(self, items: list[tuple[int, bytes]]) -> None:
+        _EmptyClipboard()
+        for f, data in items:
+            h = _GlobalAlloc(GMEM_MOVEABLE, max(1, len(data)))
+            p = _GlobalLock(h) if h else None
+            if not p:
+                if h:
+                    _GlobalFree(h)
+                continue
+            ctypes.memmove(p, data, len(data))
+            _GlobalUnlock(h)
+            if not _SetClipboardData(f, h):
+                _GlobalFree(h)
+
 
 _TEXT_FORMATS = {CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT, CF_LOCALE}
+_HANDLE_FORMATS = {2, 3, 9, 14}  # CF_BITMAP, CF_METAFILEPICT, CF_PALETTE, CF_ENHMETAFILE
+CLIPBOARD_SAVE_MAX = 64 * 1024 * 1024
+
+
+def clipboard_save() -> list[tuple[int, bytes]] | None:
+    """Everything on the clipboard (images and files too), or None if too big to hold."""
+    with Clipboard() as cb:
+        return cb.get_all(CLIPBOARD_SAVE_MAX)
+
+
+def clipboard_restore(items: list[tuple[int, bytes]]) -> None:
+    with Clipboard() as cb:
+        cb.set_all(items)
 
 
 def clipboard_snapshot() -> tuple[str, str | None]:
