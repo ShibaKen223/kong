@@ -70,6 +70,25 @@ def test_timeout(monkeypatch):
     p.shutdown()
 
 
+def test_slow_start_gives_up_early(monkeypatch):
+    monkeypatch.setattr(cc, "FIRST_TOKEN_S", 1.0)
+    p = polisher(monkeypatch, "hang", timeout=10)
+    t = time.monotonic()
+    with pytest.raises(cc.PolishError, match="原稿"):
+        p.polish("你好")
+    assert time.monotonic() - t < 3
+    p.shutdown()
+
+
+def test_stale_warm_process_is_replaced(monkeypatch):
+    p = polisher(monkeypatch)
+    stale = p._warm
+    stale.started -= cc.WARM_MAX_AGE_S + 1
+    assert p.polish("你好") == "整理：你好"
+    assert stale.proc.poll() is not None
+    p.shutdown()
+
+
 def test_crash_reports_stderr(monkeypatch):
     p = polisher(monkeypatch, "crash")
     with pytest.raises(cc.PolishError, match="boom"):

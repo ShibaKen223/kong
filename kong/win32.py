@@ -305,6 +305,12 @@ _GetWindowThreadProcessId = _fn(
     user32, "GetWindowThreadProcessId", wintypes.DWORD, wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
 )
 _GetAncestor = _fn(user32, "GetAncestor", wintypes.HWND, wintypes.HWND, wintypes.UINT)
+_AttachThreadInput = _fn(user32, "AttachThreadInput", wintypes.BOOL, wintypes.DWORD, wintypes.DWORD, wintypes.BOOL)
+_BringWindowToTop = _fn(user32, "BringWindowToTop", wintypes.BOOL, wintypes.HWND)
+_IsIconic = _fn(user32, "IsIconic", wintypes.BOOL, wintypes.HWND)
+_ShowWindow = _fn(user32, "ShowWindow", wintypes.BOOL, wintypes.HWND, ctypes.c_int)
+_GetCurrentThreadId = _fn(kernel32, "GetCurrentThreadId", wintypes.DWORD)
+SW_RESTORE = 9
 _OpenProcess = _fn(kernel32, "OpenProcess", wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
 _CloseHandle = _fn(kernel32, "CloseHandle", wintypes.BOOL, wintypes.HANDLE)
 _GetCurrentProcess = _fn(kernel32, "GetCurrentProcess", wintypes.HANDLE)
@@ -387,12 +393,33 @@ def target_blocks_input(hwnd) -> bool:
         _CloseHandle(h)
 
 
+def is_window(hwnd) -> bool:
+    return bool(_IsWindow(hwnd))
+
+
 def focus(hwnd) -> bool:
     if not hwnd or not _IsWindow(hwnd):
         return False
     if GetForegroundWindow() == hwnd:
         return True
+    if _IsIconic(hwnd):
+        _ShowWindow(hwnd, SW_RESTORE)
     _SetForegroundWindow(hwnd)
+    time.sleep(0.05)
+    if GetForegroundWindow() == hwnd:
+        return True
+    # Windows refuses a background process the foreground unless it shares input with the
+    # thread that has it, e.g. once the person clicked another window while we were working.
+    fg = GetForegroundWindow()
+    fg_thread = _GetWindowThreadProcessId(fg, None) if fg else 0
+    me = _GetCurrentThreadId()
+    attached = bool(fg_thread) and fg_thread != me and _AttachThreadInput(me, fg_thread, True)
+    try:
+        _BringWindowToTop(hwnd)
+        _SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            _AttachThreadInput(me, fg_thread, False)
     time.sleep(0.05)
     return GetForegroundWindow() == hwnd
 

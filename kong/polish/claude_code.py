@@ -37,6 +37,12 @@ log = logging.getLogger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _IS_WIN = sys.platform == "win32"
 
+# A dictation normally starts streaming within ~2 s. Past this, paste the transcript as is
+# instead of keeping the person waiting.
+FIRST_TOKEN_S = 8.0
+# Replace the waiting process when it has been idle this long (seen: 2 s after 6 min, 20 s after 14).
+WARM_MAX_AGE_S = 300.0
+
 
 class PolishError(Exception):
     pass
@@ -176,7 +182,10 @@ class _Worker:
     def stderr_text(self) -> str:
         return "\n".join(self._stderr)
 
-    def ask(self, text: str, timeout: float, on_text: Callable[[str], None] | None = None) -> str:
+    def ask(
+        self, text: str, timeout: float, on_text: Callable[[str], None] | None = None, first_token: float | None = None
+    ) -> str:
+        """`first_token`: give up early when the model has not started writing by then."""
         msg = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
         try:
             assert self.proc.stdin is not None
@@ -187,12 +196,18 @@ class _Worker:
             self.proc.wait(timeout=2)
             raise PolishError(_explain(self.stderr_text()))
 
-        deadline = time.monotonic() + timeout
+        t0 = time.monotonic()
+        deadline = t0 + timeout
         streamed = ""
         while True:
-            remaining = deadline - time.monotonic()
+            now = time.monotonic()
+            if first_token is not None and not streamed and now - t0 >= first_token:
+                raise PolishError(f"Claude 這次 {first_token:.0f} 秒還沒開始回應，先貼原稿")
+            remaining = deadline - now
             if remaining <= 0:
                 raise PolishError(f"Claude Code 超過 {timeout:.0f} 秒沒有回應")
+            if first_token is not None and not streamed:
+                remaining = min(remaining, t0 + first_token - now)
             try:
                 ev = self._events.get(timeout=remaining)
             except queue.Empty:
@@ -426,15 +441,21 @@ class ClaudeCodePolisher:
     def polish(self, transcript: str, on_text: Callable[[str], None] | None = None) -> str:
         with self._lock:
             w, self._warm = self._warm, None
-        # A warm process started before the glossary was edited would use the old words.
-        cold = w is None or not w.alive() or w.prompt_text != self._current_prompt()
+        # A warm process started before the glossary was edited would use the old words, and one
+        # left idle for long has been seen to take 20 s over its first answer.
+        cold = (
+            w is None
+            or not w.alive()
+            or w.prompt_text != self._current_prompt()
+            or time.monotonic() - w.started > WARM_MAX_AGE_S
+        )
         if cold:
             if w is not None:
                 w.kill()
             w = self._spawn()
         t0 = time.monotonic()
         try:
-            out = w.ask(prompt.user_message(transcript), self.cfg.claude_timeout_s, on_text)
+            out = w.ask(prompt.user_message(transcript), self.cfg.claude_timeout_s, on_text, FIRST_TOKEN_S)
             with self._lock:
                 self.status = f"就緒（{self.cfg.claude_model or '預設模型'}）"
             return out

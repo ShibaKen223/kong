@@ -628,6 +628,9 @@ class App:
             if result is Result.CLIPBOARD:
                 self._finish(cancel, "warn", "已放進剪貼簿，請按 Ctrl+V", o.final,
                              hint="這個視窗不接受模擬按鍵（例如以系統管理員身分執行的程式）", hide=6)
+            elif result is Result.FOCUS_LOST:
+                self._finish(cancel, "warn", "已放進剪貼簿，請按 Ctrl+V", o.final,
+                             hint="原本的視窗叫不回來，所以沒有直接貼上" + (f"。{o.note}" if o.note else ""), hide=8)
             elif o.note:
                 self._finish(cancel, "warn", "已貼上原稿（沒有整理）", o.final, hint=o.note, hide=8)
             else:

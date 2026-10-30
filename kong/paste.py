@@ -19,6 +19,7 @@ class Result(enum.Enum):
     PASTED = "pasted"
     TYPED = "typed"
     CLIPBOARD = "clipboard"  # could not paste: the text is on the clipboard, press Ctrl+V
+    FOCUS_LOST = "focus_lost"  # the original window would not come back: on the clipboard instead
 
 
 def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = True) -> Result:
@@ -33,7 +34,12 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
         return Result.CLIPBOARD
 
     if not win32.focus(target_hwnd):
-        log.info("could not bring the original window back; pasting into the current one")
+        if target_hwnd and win32.is_window(target_hwnd):
+            # Pasting into whatever is in front now could put the words somewhere they don't belong.
+            win32.set_clipboard_text(text)
+            log.info("could not bring the original window back: left text on the clipboard")
+            return Result.FOCUS_LOST
+        log.info("the original window is gone; pasting into the current one")
     win32.release_modifiers()
 
     if method == "type":
