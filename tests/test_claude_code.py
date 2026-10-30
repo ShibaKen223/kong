@@ -56,6 +56,13 @@ def test_not_logged_in_is_an_error_not_an_answer(monkeypatch):
     p.shutdown()
 
 
+def test_expired_login_says_so():
+    # What Claude Code 2.1 prints when its saved subscription login can no longer be refreshed.
+    msg = cc._explain("Failed to authenticate: OAuth session expired and could not be refreshed")
+    assert "過期" in msg and "claude" in msg
+    assert "過期" not in cc._explain("Not logged in · Please run /login")
+
+
 def test_timeout(monkeypatch):
     p = polisher(monkeypatch, "hang", timeout=1)
     with pytest.raises(cc.PolishError, match="秒"):

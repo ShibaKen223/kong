@@ -438,6 +438,7 @@ def set_caption_colors(hwnd, caption: str, text: str, border: str) -> None:
 
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 WS_EX_LAYERED = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
 ULW_ALPHA = 0x2
 AC_SRC_ALPHA = 0x1
 
@@ -492,8 +493,9 @@ _DeleteObject = _fn(gdi32, "DeleteObject", wintypes.BOOL, wintypes.HGDIOBJ)
 class LayeredWindow:
     """Shows a premultiplied BGRA bitmap as the whole window: soft shadow, real rounded corners.
 
-    Fully transparent pixels let clicks through. Never set Tk's `-alpha` on this window: once
-    SetLayeredWindowAttributes has been called, UpdateLayeredWindow stops working.
+    Clicks always pass through (WS_EX_TRANSPARENT): the panel is only something to read. Never
+    set Tk's `-alpha` on this window: once SetLayeredWindowAttributes has been called,
+    UpdateLayeredWindow stops working.
     """
 
     def __init__(self, hwnd) -> None:
@@ -501,7 +503,7 @@ class LayeredWindow:
         style = _GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
         # Clearing and setting WS_EX_LAYERED again forgets an earlier SetLayeredWindowAttributes.
         _SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style & ~WS_EX_LAYERED)
-        _SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED)
+        _SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
         self._dc = _CreateCompatibleDC(None)
         self._bmp = None
         self._old = None

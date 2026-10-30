@@ -111,6 +111,9 @@ _ERROR_TEXT = re.compile(
 
 def _explain(raw: str) -> str:
     low = raw.lower()
+    # The Claude desktop app keeps its own login, so "but I am logged in" is common here.
+    if "expired" in low and ("oauth" in low or "authenticate" in low or "token" in low):
+        return "Claude Code 的登入過期了：打開終端機執行 claude 重新登入（Claude 桌面版的登入是分開的）"
     if "login" in low or "not logged in" in low or "invalid api key" in low or "oauth" in low:
         return "Claude Code 還沒登入：打開終端機執行 claude，登入你的帳號後再試"
     if "git-bash" in low or "git bash" in low:

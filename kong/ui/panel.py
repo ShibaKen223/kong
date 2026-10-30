@@ -506,12 +506,15 @@ class Panel:
             animating = True
         elif v.kind == "work" or now - self._since < 0.6:  # stripes run; arcs and rule sweep in
             animating = True
+        on_screen = self._alpha > 0
         if self._alpha != self._target:
             step = dt / (FADE_IN_S if self._target > self._alpha else FADE_OUT_S)
             self._alpha = min(self._target, self._alpha + step) if self._target > self._alpha else max(self._target, self._alpha - step)
             animating = True
         v.t = now - self._since
-        if (animating or self._dirty) and (self._alpha > 0 or self._target > 0):
+        # `on_screen`, not the new alpha: the tick that fades to 0 must still push that last,
+        # empty frame, or the window keeps a see-through ghost of the one before.
+        if (animating or self._dirty) and (on_screen or self._target > 0):
             try:
                 self._frame()
             except Exception:
