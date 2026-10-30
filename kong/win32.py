@@ -408,18 +408,133 @@ _SetWindowPos = _fn(
 )
 
 
-def make_overlay(hwnd) -> None:
+def make_overlay(hwnd, round_corners: bool = True) -> None:
     """Topmost, never takes focus, no taskbar button: the panel must not steal the cursor."""
     style = _GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
     style = (style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST) & ~WS_EX_APPWINDOW
     _SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style)
     _SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED)
     try:
-        # Windows 11 rounded corners; harmless no-op elsewhere.
-        pref = ctypes.c_int(2)
+        # Windows 11 corners: 2 = round, 1 = never (a per-pixel-alpha window draws its own).
+        pref = ctypes.c_int(2 if round_corners else 1)
         ctypes.WinDLL("dwmapi").DwmSetWindowAttribute(hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref))
     except OSError:
         pass
+
+
+# --- per-pixel-alpha windows -------------------------------------------------------------
+
+gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+WS_EX_LAYERED = 0x00080000
+ULW_ALPHA = 0x2
+AC_SRC_ALPHA = 0x1
+
+
+class BLENDFUNCTION(ctypes.Structure):
+    _fields_ = [
+        ("BlendOp", ctypes.c_ubyte),
+        ("BlendFlags", ctypes.c_ubyte),
+        ("SourceConstantAlpha", ctypes.c_ubyte),
+        ("AlphaFormat", ctypes.c_ubyte),
+    ]
+
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD),
+        ("biWidth", wintypes.LONG),
+        ("biHeight", wintypes.LONG),
+        ("biPlanes", wintypes.WORD),
+        ("biBitCount", wintypes.WORD),
+        ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD),
+        ("biXPelsPerMeter", wintypes.LONG),
+        ("biYPelsPerMeter", wintypes.LONG),
+        ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+
+_GetDC = _fn(user32, "GetDC", wintypes.HDC, wintypes.HWND)
+_ReleaseDC = _fn(user32, "ReleaseDC", ctypes.c_int, wintypes.HWND, wintypes.HDC)
+_UpdateLayeredWindow = _fn(
+    user32,
+    "UpdateLayeredWindow",
+    wintypes.BOOL,
+    wintypes.HWND, wintypes.HDC, ctypes.POINTER(wintypes.POINT), ctypes.POINTER(wintypes.SIZE),
+    wintypes.HDC, ctypes.POINTER(wintypes.POINT), wintypes.COLORREF, ctypes.POINTER(BLENDFUNCTION), wintypes.DWORD,
+)
+_CreateCompatibleDC = _fn(gdi32, "CreateCompatibleDC", wintypes.HDC, wintypes.HDC)
+_DeleteDC = _fn(gdi32, "DeleteDC", wintypes.BOOL, wintypes.HDC)
+_CreateDIBSection = _fn(
+    gdi32,
+    "CreateDIBSection",
+    wintypes.HBITMAP,
+    wintypes.HDC, ctypes.POINTER(BITMAPINFOHEADER), wintypes.UINT, ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE,
+    wintypes.DWORD,
+)
+_SelectObject = _fn(gdi32, "SelectObject", wintypes.HGDIOBJ, wintypes.HDC, wintypes.HGDIOBJ)
+_DeleteObject = _fn(gdi32, "DeleteObject", wintypes.BOOL, wintypes.HGDIOBJ)
+
+
+class LayeredWindow:
+    """Shows a premultiplied BGRA bitmap as the whole window: soft shadow, real rounded corners.
+
+    Fully transparent pixels let clicks through. Never set Tk's `-alpha` on this window: once
+    SetLayeredWindowAttributes has been called, UpdateLayeredWindow stops working.
+    """
+
+    def __init__(self, hwnd) -> None:
+        self.hwnd = hwnd
+        style = _GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+        # Clearing and setting WS_EX_LAYERED again forgets an earlier SetLayeredWindowAttributes.
+        _SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style & ~WS_EX_LAYERED)
+        _SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED)
+        self._dc = _CreateCompatibleDC(None)
+        self._bmp = None
+        self._old = None
+        self._bits = ctypes.c_void_p()
+        self._size = (0, 0)
+
+    def _ensure(self, w: int, h: int) -> None:
+        if (w, h) == self._size:
+            return
+        bi = BITMAPINFOHEADER()
+        bi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bi.biWidth, bi.biHeight = w, -h  # negative: rows top-down, like the image
+        bi.biPlanes, bi.biBitCount = 1, 32
+        bmp = _CreateDIBSection(self._dc, ctypes.byref(bi), 0, ctypes.byref(self._bits), None, 0)
+        if not bmp:
+            raise ctypes.WinError(ctypes.get_last_error())
+        old = _SelectObject(self._dc, bmp)
+        if self._bmp:
+            _DeleteObject(self._bmp)
+        else:
+            self._old = old
+        self._bmp = bmp
+        self._size = (w, h)
+
+    def update(self, bgra: bytes, w: int, h: int, x: int, y: int, alpha: int = 255) -> bool:
+        self._ensure(w, h)
+        ctypes.memmove(self._bits, bgra, w * h * 4)
+        blend = BLENDFUNCTION(0, 0, max(0, min(255, alpha)), AC_SRC_ALPHA)
+        screen = _GetDC(None)
+        try:
+            return bool(_UpdateLayeredWindow(
+                self.hwnd, screen, ctypes.byref(wintypes.POINT(x, y)), ctypes.byref(wintypes.SIZE(w, h)),
+                self._dc, ctypes.byref(wintypes.POINT(0, 0)), 0, ctypes.byref(blend), ULW_ALPHA,
+            ))
+        finally:
+            _ReleaseDC(None, screen)
+
+    def close(self) -> None:
+        if self._bmp:
+            _SelectObject(self._dc, self._old)
+            _DeleteObject(self._bmp)
+            self._bmp = None
+        if self._dc:
+            _DeleteDC(self._dc)
+            self._dc = None
 
 
 

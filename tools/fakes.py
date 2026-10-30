@@ -67,9 +67,9 @@ class FakeTray:
 
 def install(kapp, pasted: list):
     """Patch kong.app for a headless run; returns a paste function that records into `pasted`."""
-    from kong.ui import main_window, panel
+    from kong.ui import main_window
 
-    panel.FONT = main_window.FONT = "WenQuanYi Zen Hei"
+    main_window.FONT = "WenQuanYi Zen Hei"
     kapp.Tray = FakeTray
     kapp.audio.Recorder = FakeRecorder
 
