@@ -422,6 +422,18 @@ def make_overlay(hwnd, round_corners: bool = True) -> None:
         pass
 
 
+def set_caption_colors(hwnd, caption: str, text: str, border: str) -> None:
+    """Paint the title bar to match the window ("#rrggbb"). Windows 11; a no-op elsewhere."""
+    try:
+        dwm = ctypes.WinDLL("dwmapi")
+    except OSError:
+        return
+    for attr, color in ((35, caption), (36, text), (34, border)):  # DWMWA_CAPTION/TEXT/BORDER_COLOR
+        r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+        ref = wintypes.DWORD(r | (g << 8) | (b << 16))
+        dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(ref), ctypes.sizeof(ref))
+
+
 # --- per-pixel-alpha windows -------------------------------------------------------------
 
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -577,16 +589,6 @@ def signal_event(name: str) -> bool:
         return bool(_SetEvent(h))
     finally:
         _CloseHandle(h)
-
-
-def apps_use_dark_theme() -> bool:
-    import winreg
-
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
-            return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
-    except OSError:
-        return False
 
 
 MB_OK = 0x0

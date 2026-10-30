@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import ttk
 from typing import TYPE_CHECKING
 
@@ -19,7 +19,9 @@ from PIL import ImageTk
 from .. import DISPLAY_NAME, __version__, models, paths, textproc
 from ..config import ENGINES, HOTKEYS, PASTE_METHODS, POLISH_MODES
 from ..polish import prompt
+from . import theme
 from .icon import mic_icon
+from .panel import HISTORY, Painter, View
 from .tray import CLAUDE_MODELS
 
 if TYPE_CHECKING:
@@ -27,17 +29,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 IS_WIN = sys.platform == "win32"
-FONT = "Microsoft JhengHei UI" if IS_WIN else "Noto Sans CJK TC"
+FONT = theme.FONT
 REPO_URL = "https://github.com/ShibaKen223/kong"
 TEST_MAX_S = 30
-
-
-def _dark() -> bool:
-    if not IS_WIN:
-        return False
-    from .. import win32
-
-    return win32.apps_use_dark_theme()
+BLOCK = (168, 76)  # the state graphic in the header, at 96 dpi
 
 
 class MainWindow:
@@ -47,16 +42,17 @@ class MainWindow:
         w = self.win = tk.Toplevel(root)
         w.withdraw()
         w.title(DISPLAY_NAME)
-        w.geometry("780x640")
-        w.minsize(660, 560)
+        w.geometry("820x780")
+        w.minsize(700, 700)
         w.protocol("WM_DELETE_WINDOW", self.hide)
-        self._icons = {s: ImageTk.PhotoImage(mic_icon(s, 56)) for s in ("idle", "recording", "busy", "loading", "error")}
         self._app_icon = ImageTk.PhotoImage(mic_icon("idle", 64))
         w.iconphoto(False, self._app_icon)
         self._theme()
 
+        self._build_header()
+        self._build_footer()
         self.nb = ttk.Notebook(w)
-        self.nb.pack(fill="both", expand=True, padx=14, pady=14)
+        self.nb.pack(fill="both", expand=True, padx=18, pady=(14, 0))
         self._build_home()
         self._build_settings()
         self._build_history()
@@ -67,36 +63,118 @@ class MainWindow:
         self._testing = False
         self._test_started = 0
         self._history_count = -1
+        self._block_kind = ""
+        self._block_since = time.monotonic()
+        self._block_view = View()
         self._tick()
+        self._animate()
 
     # --- look ---------------------------------------------------------------------------
 
     def _theme(self) -> None:
-        self._is_dark = _dark()
+        theme.apply(self.root)
+        self.win.configure(bg=theme.PAPER)
+        self._text_colors = theme.TEXT_COLORS
         try:
-            import sv_ttk
+            self._scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+        except tk.TclError:
+            self._scale = 1.0
+        self._painter = Painter(self._scale)
 
-            sv_ttk.set_theme("dark" if self._is_dark else "light", root=self.root)
-        except Exception:
-            log.exception("sv-ttk theme unavailable; using the default ttk theme")
-        # The theme's fonts are Segoe UI, which has no Chinese: use 微軟正黑體 at the same sizes.
-        for name in tkfont.names(self.root):
-            if name.startswith("SunValley") or name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont"):
-                try:
-                    tkfont.nametofont(name, root=self.root).configure(family=FONT)
-                except tk.TclError:
-                    pass
-        style = ttk.Style(self.root)
-        style.configure("Title.TLabel", font=(FONT, 18, "bold"))
-        style.configure("Sub.TLabel", font=(FONT, 10))
-        style.configure("Key.TLabel", font=(FONT, 10, "bold"))
-        style.configure("Hint.TLabel", font=(FONT, 9))
-        # Plain tk.Text is not themed by sv-ttk.
-        self._text_colors = (
-            dict(bg="#2b2b2b", fg="#f2f2f2", insertbackground="#f2f2f2", selectbackground="#3d5a80")
-            if self._is_dark
-            else dict(bg="#fbfbfb", fg="#1c1c1c", insertbackground="#1c1c1c", selectbackground="#cce0ff")
-        )
+    def _paint_title_bar(self) -> None:
+        if not IS_WIN:
+            return
+        from .. import win32
+
+        try:
+            hwnd = int(self.win.wm_frame(), 16)
+            win32.set_caption_colors(hwnd, theme.PAPER, theme.INK, theme.INK)
+        except (tk.TclError, ValueError, OSError):
+            log.debug("could not colour the title bar", exc_info=True)
+
+    # --- header and footer --------------------------------------------------------------
+
+    def _build_header(self) -> None:
+        """A cassette label: wordmark and state on paper, the state graphic flush right."""
+        head = ttk.Frame(self.win)
+        head.pack(fill="x", side="top")
+        self.hd_block = ttk.Label(head, padding=0)
+        self.hd_block.pack(side="right", anchor="n")
+        left = ttk.Frame(head, padding=(18, 10, 12, 8))
+        left.pack(side="left", fill="both", expand=True)
+        top = ttk.Frame(left)
+        top.pack(fill="x")
+        ttk.Label(top, text="KONG", style="Mark.TLabel").pack(side="left")
+        ttk.Label(top, text="講", style="Title.TLabel").pack(side="left", padx=(6, 0))
+        meta = ttk.Frame(left)
+        meta.pack(fill="x", pady=(2, 0))
+        self.hd_dot = tk.Canvas(meta, width=8, height=8, highlightthickness=0, bg=theme.PAPER)
+        self.hd_dot.pack(side="left", padx=(1, 7))
+        self._hd_dot = self.hd_dot.create_rectangle(0, 0, 8, 8, fill=theme.ORANGE, outline="")
+        self.hd_state = ttk.Label(meta, text="", style="Meta.TLabel")
+        self.hd_state.pack(side="left")
+        ttk.Label(meta, text="繁體中文語音輸入 ／ WINDOWS", style="Hint.TLabel").pack(side="right")
+        ttk.Frame(self.win, style="Ink.TFrame", height=1).pack(fill="x", side="top")
+
+    def _build_footer(self) -> None:
+        foot = ttk.Frame(self.win, padding=(18, 6, 18, 8))
+        foot.pack(fill="x", side="bottom")
+        ttk.Label(foot, text=f"{DISPLAY_NAME} {__version__}", style="Meta.TLabel").pack(side="left")
+        ttk.Label(foot, text=REPO_URL.removeprefix("https://"), style="Hint.TLabel").pack(side="right")
+        ttk.Frame(self.win, style="Ink.TFrame", height=1).pack(fill="x", side="bottom", padx=18)
+
+    def _section(self, parent, num: str, title: str, hint: str = "") -> None:
+        row = ttk.Frame(parent)
+        row.pack(fill="x")
+        ttk.Label(row, text=num, style="Num.TLabel").pack(side="left", padx=(0, 8))
+        ttk.Label(row, text=title, style="Key.TLabel").pack(side="left")
+        if hint:
+            ttk.Label(parent, text=hint, style="Hint.TLabel").pack(anchor="w", pady=(2, 0))
+
+    def _box(self, parent, num: str, title: str) -> ttk.LabelFrame:
+        """A hairline box whose label is an orange number and a bold title."""
+        label = ttk.Frame(parent)
+        ttk.Label(label, text=num, style="Num.TLabel").pack(side="left", padx=(0, 6))
+        ttk.Label(label, text=title, style="Key.TLabel").pack(side="left")
+        return ttk.LabelFrame(parent, labelwidget=label, padding=10)
+
+    def _state_kind(self) -> str:
+        app = self.app
+        if app.models_missing:
+            return "error"
+        return {"idle": "ok", "recording": "listen", "testing": "listen"}.get(app.state, "work")
+
+    def _draw_block(self) -> None:
+        kind = self._state_kind()
+        v = self._block_view
+        now = time.monotonic()
+        if kind != self._block_kind:
+            self._block_kind = kind
+            self._block_since = now
+            v.history, v.level = [], 0.0
+        v.kind = kind
+        v.t = now - self._block_since
+        if kind == "listen":
+            level = min(1.0, (getattr(self.app.recorder, "level", 0.0) * 12) ** 0.6)
+            v.level += (level - v.level) * (0.55 if level > v.level else 0.2)
+            v.history = (v.history + [v.level])[-HISTORY:]
+        w, h = (int(round(n * self._scale)) for n in BLOCK)
+        self._block_img = ImageTk.PhotoImage(self._painter.block(v, w, h), master=self.win)
+        self.hd_block.configure(image=self._block_img)
+        self.hd_dot.itemconfigure(self._hd_dot, fill=theme.INK if kind == "ok" else theme.ORANGE)
+
+    def _animate(self) -> None:
+        """Run the header graphic while something is happening; idle frames cost nothing."""
+        if self._visible and (
+            self._block_kind in ("listen", "work")
+            or time.monotonic() - self._block_since < 0.6
+            or self._state_kind() != self._block_kind
+        ):
+            try:
+                self._draw_block()
+            except Exception:
+                log.exception("header graphic failed")
+        self.win.after(80, self._animate)
 
     # --- showing ------------------------------------------------------------------------
 
@@ -110,7 +188,9 @@ class MainWindow:
         w.after(300, lambda: w.attributes("-topmost", False))
         w.focus_force()
         self._visible = True
+        self._paint_title_bar()
         self._refresh()
+        self._draw_block()
 
     def hide(self) -> None:
         self.win.withdraw()
@@ -130,48 +210,46 @@ class MainWindow:
     # --- 首頁 -----------------------------------------------------------------------------
 
     def _build_home(self) -> None:
-        f = ttk.Frame(self.nb, padding=18)
+        f = ttk.Frame(self.nb, padding=(4, 18, 4, 12))
         self.nb.add(f, text="首頁")
         head = ttk.Frame(f)
         head.pack(fill="x")
-        self.h_icon = ttk.Label(head, image=self._icons["loading"])
-        self.h_icon.pack(side="left", padx=(0, 14))
         txt = ttk.Frame(head)
         txt.pack(side="left", fill="x", expand=True)
         self.h_title = ttk.Label(txt, text="", style="Title.TLabel")
         self.h_title.pack(anchor="w")
         self.h_detail = ttk.Label(txt, text="", style="Sub.TLabel", wraplength=560, justify="left")
         self.h_detail.pack(anchor="w", pady=(2, 0))
-        self.h_retry = ttk.Button(head, text="重新下載語音模型", command=self.app.retry_setup)
+        self.h_retry = ttk.Button(head, text="重新下載語音模型", style="Accent.TButton", command=self.app.retry_setup)
 
-        ttk.Separator(f).pack(fill="x", pady=16)
+        ttk.Separator(f).pack(fill="x", pady=14)
+        self._section(f, "01", "狀態")
         rows = ttk.Frame(f)
-        rows.pack(fill="x")
+        rows.pack(fill="x", pady=(6, 0))
         rows.columnconfigure(1, weight=1)
         self.r_engine = self._row(rows, 0, "語音辨識", "變更", lambda: self.nb.select(1))
         self.r_gpu = self._row(rows, 1, "顯示卡")
         self.r_polish = self._row(rows, 2, "整理", "測試整理", self._test_polish)
         self.r_gloss = self._row(rows, 3, "常用詞", "編輯", lambda: self.nb.select(3))
         self.h_tip = ttk.Label(f, text="", style="Hint.TLabel", wraplength=700, justify="left")
-        self.h_tip.pack(anchor="w", pady=(10, 0))
+        self.h_tip.pack(anchor="w", pady=(8, 0))
         self.h_tip_btn = ttk.Button(f, text="改用 Qwen3-ASR", command=lambda: self.app.set_option("engine", "qwen3"))
 
-        ttk.Separator(f).pack(fill="x", pady=16)
-        ttk.Label(f, text="試講一句", style="Key.TLabel").pack(anchor="w")
-        ttk.Label(f, text="結果只會顯示在下面，不會貼到別的地方。可以用來比較不同的辨識引擎。", style="Hint.TLabel").pack(anchor="w")
+        ttk.Separator(f).pack(fill="x", pady=14)
+        self._section(f, "02", "試講一句", "結果只會顯示在下面，不會貼到別的地方。可以用來比較不同的辨識引擎。")
         bar = ttk.Frame(f)
-        bar.pack(fill="x", pady=(8, 6))
+        bar.pack(fill="x", pady=(8, 8))
         self.t_btn = ttk.Button(bar, text="● 開始試講", style="Accent.TButton", command=self._toggle_test)
         self.t_btn.pack(side="left")
         self.t_state = ttk.Label(bar, text="", style="Sub.TLabel")
         self.t_state.pack(side="left", padx=12)
-        self.t_out = tk.Text(f, height=7, wrap="word", font=(FONT, 11), relief="flat", padx=10, pady=8, borderwidth=0,
+        self.t_out = tk.Text(f, height=5, wrap="word", font=(FONT, 11), relief="flat", padx=12, pady=10, borderwidth=0,
                              **self._text_colors)
         self.t_out.pack(fill="both", expand=True)
         self._set_test_text("")
 
     def _row(self, parent, r: int, key: str, button: str | None = None, command=None) -> ttk.Label:
-        ttk.Label(parent, text=key, style="Key.TLabel").grid(row=r, column=0, sticky="w", padx=(0, 18), pady=5)
+        ttk.Label(parent, text=key, style="Hint.TLabel").grid(row=r, column=0, sticky="w", padx=(0, 18), pady=5)
         val = ttk.Label(parent, text="", wraplength=470, justify="left")
         val.grid(row=r, column=1, sticky="w", pady=5)
         if button:
@@ -245,7 +323,7 @@ class MainWindow:
     # --- 設定 -----------------------------------------------------------------------------
 
     def _build_settings(self) -> None:
-        outer = ttk.Frame(self.nb, padding=(18, 12))
+        outer = ttk.Frame(self.nb, padding=(4, 16, 4, 12))
         self.nb.add(outer, text="設定")
         cfg = self.app.cfg
         left = ttk.Frame(outer)
@@ -253,7 +331,7 @@ class MainWindow:
         right = ttk.Frame(outer)
         right.pack(side="left", fill="both", expand=True)
 
-        eng = ttk.LabelFrame(left, text="辨識引擎", padding=10)
+        eng = self._box(left, "01", "辨識引擎")
         eng.pack(fill="x")
         self.v_engine = tk.StringVar(value=cfg.engine)
         self.engine_notes: dict[str, ttk.Label] = {}
@@ -267,7 +345,7 @@ class MainWindow:
             note.pack(anchor="w", padx=(28, 0), pady=(0, 4))
             self.engine_notes[key] = note
 
-        pol = ttk.LabelFrame(left, text="整理（去贅字、修改口、修錯字）", padding=10)
+        pol = self._box(left, "02", "整理（去贅字、修改口、修錯字）")
         pol.pack(fill="x", pady=(12, 0))
         self.v_polish = tk.StringVar(value=cfg.polish)
         for key, label in POLISH_MODES.items():
@@ -281,7 +359,7 @@ class MainWindow:
         cb.pack(side="left", padx=8)
         cb.bind("<<ComboboxSelected>>", lambda e: self.app.set_option("claude_model", self._key_of(CLAUDE_MODELS, self.v_model.get())))
 
-        hk = ttk.LabelFrame(right, text="快捷鍵", padding=10)
+        hk = self._box(right, "03", "快捷鍵")
         hk.pack(fill="x")
         ttk.Label(hk, text="連按兩下開始說話，講完再按一下").pack(anchor="w")
         self.v_hotkey = tk.StringVar(value=HOTKEYS[cfg.hotkey])
@@ -289,14 +367,14 @@ class MainWindow:
         hcb.pack(anchor="w", pady=(6, 0))
         hcb.bind("<<ComboboxSelected>>", lambda e: self.app.set_option("hotkey", self._key_of(HOTKEYS, self.v_hotkey.get())))
 
-        pst = ttk.LabelFrame(right, text="貼上", padding=10)
+        pst = self._box(right, "04", "貼上")
         pst.pack(fill="x", pady=(12, 0))
         self.v_paste = tk.StringVar(value=cfg.paste_method)
         for key, label in PASTE_METHODS.items():
             ttk.Radiobutton(pst, text=label, value=key, variable=self.v_paste,
                             command=lambda: self.app.set_option("paste_method", self.v_paste.get())).pack(anchor="w")
 
-        gen = ttk.LabelFrame(right, text="一般", padding=10)
+        gen = self._box(right, "05", "一般")
         gen.pack(fill="x", pady=(12, 0))
         self.v_live = tk.BooleanVar(value=cfg.live_preview)
         ttk.Checkbutton(gen, text="邊講邊顯示文字", variable=self.v_live,
@@ -310,7 +388,6 @@ class MainWindow:
         ttk.Button(btns, text="匯出診斷檔到桌面", command=self.app.export_diagnostics).pack(fill="x")
         ttk.Button(btns, text="開啟記錄檔資料夾", command=self.app.open_logs).pack(fill="x", pady=6)
         ttk.Button(btns, text="結束 Kong", command=self.app.quit).pack(fill="x")
-        ttk.Label(right, text=f"{DISPLAY_NAME} {__version__}\n{REPO_URL}", style="Hint.TLabel", justify="left").pack(anchor="w", pady=(14, 0))
 
     @staticmethod
     def _key_of(options: dict[str, str], label: str) -> str:
@@ -319,7 +396,7 @@ class MainWindow:
     # --- 最近說過的話 -----------------------------------------------------------------------
 
     def _build_history(self) -> None:
-        f = ttk.Frame(self.nb, padding=18)
+        f = ttk.Frame(self.nb, padding=(4, 16, 4, 12))
         self.nb.add(f, text="最近說過的話")
         ttk.Label(f, text="最近 20 句，只存在這台電腦。按兩下一句就會複製。", style="Hint.TLabel").pack(anchor="w", pady=(0, 8))
         self.hist = ttk.Treeview(f, columns=("t", "text"), show="headings", selectmode="browse")
@@ -353,7 +430,7 @@ class MainWindow:
     # --- 常用詞 ---------------------------------------------------------------------------
 
     def _build_glossary(self) -> None:
-        f = ttk.Frame(self.nb, padding=18)
+        f = ttk.Frame(self.nb, padding=(4, 16, 4, 12))
         self.nb.add(f, text="常用詞")
         ttk.Label(
             f,
@@ -362,7 +439,7 @@ class MainWindow:
             wraplength=680,
             justify="left",
         ).pack(anchor="w", pady=(0, 8))
-        self.g_text = tk.Text(f, wrap="word", font=(FONT, 11), relief="flat", padx=10, pady=8, undo=True,
+        self.g_text = tk.Text(f, wrap="word", font=(FONT, 11), relief="flat", padx=12, pady=10, undo=True,
                               **self._text_colors)
         self.g_text.pack(fill="both", expand=True)
         bar = ttk.Frame(f)
@@ -406,8 +483,7 @@ class MainWindow:
         title, detail = app.headline()
         self.h_title.configure(text=title)
         self.h_detail.configure(text=detail)
-        icon = {"recording": "recording", "testing": "recording", "busy": "busy", "idle": "idle"}.get(app.state, "loading")
-        self.h_icon.configure(image=self._icons["error" if app.models_missing else icon])
+        self.hd_state.configure(text=f"[ {title.rstrip('…')} ]")
         if app.models_missing:
             self.h_retry.pack(side="right")
         else:

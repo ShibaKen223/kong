@@ -161,16 +161,18 @@ def cmd_selftest(args) -> None:
     def theme():
         import tkinter as tk
 
-        import sv_ttk
         from PIL import ImageTk
 
+        from .ui import theme as kong_theme
         from .ui.icon import mic_icon
+        from .ui.panel import Painter, View
 
         r = tk.Tk()
         r.withdraw()
-        sv_ttk.set_theme("light", root=r)
+        style = kong_theme.apply(r)
         ImageTk.PhotoImage(mic_icon("idle", 32), master=r)
-        v = sv_ttk.get_theme(r)
+        ImageTk.PhotoImage(Painter().render(View("listen", "聽寫中", "測試")), master=r)
+        v = style.theme_use()
         r.destroy()
         return v
 

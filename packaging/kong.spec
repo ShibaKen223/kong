@@ -18,7 +18,7 @@ def delvewheel_libs(pkg):
     return [(f, pkg + ".libs") for f in glob.glob(os.path.join(libs, "*.dll"))]
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("sherpa_onnx", "opencc", "ctranslate2", "faster_whisper", "tokenizers", "av", "sounddevice", "_sounddevice_data", "sv_ttk"):
+for pkg in ("sherpa_onnx", "opencc", "ctranslate2", "faster_whisper", "tokenizers", "av", "sounddevice", "_sounddevice_data"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

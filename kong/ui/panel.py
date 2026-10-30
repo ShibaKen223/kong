@@ -30,16 +30,19 @@ from typing import Callable
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
+from . import theme
+from .theme import rgb
+
 log = logging.getLogger(__name__)
 
 IS_WIN = sys.platform == "win32"
 
 PAPER_TOP = (219, 219, 215)
 PAPER_BOTTOM = (205, 205, 201)
-INK = (17, 17, 17)
-INK_SOFT = (78, 78, 76)
-INK_FAINT = (132, 132, 128)
-ORANGE = (255, 74, 38)
+INK = rgb(theme.INK)
+INK_SOFT = rgb(theme.INK_SOFT)
+INK_FAINT = rgb(theme.INK_FAINT)
+ORANGE = rgb(theme.ORANGE)
 DIM_DOT = (52, 52, 52)
 _WINDIR = os.environ.get("WINDIR", r"C:\Windows")
 _F = os.path.join(_WINDIR, "Fonts")
@@ -231,7 +234,7 @@ class Painter:
 
     # --- the block -----------------------------------------------------------------------
 
-    def _block(self, v: View, w: int, h: int) -> Image.Image:
+    def block(self, v: View, w: int, h: int) -> Image.Image:
         """The graphic on the right edge, drawn 3× and scaled down for clean edges."""
         ss = 3
         W, H = w * ss, h * ss
@@ -337,7 +340,7 @@ class Painter:
         x0, y0 = m, m
 
         # The block, clipped to the card's rounded right corners.
-        block = self._block(v, bw, h)
+        block = self.block(v, bw, h)
         block.putalpha(ImageChops.multiply(block.getchannel("A"), shape.crop((w - bw, 0, w, h))))
         img.alpha_composite(block, (x0 + w - bw, y0))
 
