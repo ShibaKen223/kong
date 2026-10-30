@@ -9,7 +9,7 @@ The whole card is drawn with Pillow (`Painter`), so it can have a soft shadow, r
 corners and a glow. On Windows the image becomes the window itself through
 UpdateLayeredWindow (per-pixel alpha); elsewhere it is shown in a plain Tk label, for previews.
 
-Look: a dark, quiet card. Kong's mark glows orange on the left and swells with your voice,
+Look: a graphite card with an aluminium edge. Kong's mark glows orange on the left and swells with your voice,
 the words are large and white, and one thin line under them carries the live state: a fine
 waveform while listening, a sweep while working, solid when done.
 """
@@ -39,17 +39,17 @@ log = logging.getLogger(__name__)
 
 IS_WIN = sys.platform == "win32"
 
-CARD_TOP = (44, 44, 48)
-CARD_BOTTOM = (28, 28, 31)
-CARD_ALPHA = 244  # a touch see-through, like frosted glass without the blur
-FG = (242, 242, 247)
-FG_STATUS = (206, 206, 212)
-SUB = (146, 146, 154)
-FAINT = (112, 112, 120)
+CARD_TOP = (36, 40, 42)  # graphite, from the key visual's plinth
+CARD_BOTTOM = (17, 20, 21)
+CARD_ALPHA = 246  # a touch see-through
+FG = rgb(theme.FG)
+FG_STATUS = (204, 208, 209)
+SUB = (148, 154, 156)
+FAINT = (108, 115, 117)
 ERROR_TEXT = (255, 140, 128)
-INK = rgb(theme.INK)
 ORANGE = rgb(theme.ORANGE)
-DIM_DOT = (52, 52, 52)
+ALU = rgb(theme.ALU)
+BG = rgb(theme.BG)
 _WINDIR = os.environ.get("WINDIR", r"C:\Windows")
 _F = os.path.join(_WINDIR, "Fonts")
 FONT_FILES = {
@@ -87,7 +87,6 @@ TEXT_PX = 18
 SMALL_PX = 13
 FOOTER_H = 40
 WAVE_H = 9  # half-height of the tallest waveform tick
-CELL = 10  # dot meter grid (the main window's header graphic)
 BOTTOM_GAP = 24  # card to the bottom of the work area
 HISTORY = 96  # voice level samples kept: the waveform shows the last few seconds
 
@@ -146,6 +145,7 @@ class Painter:
         self.f_small = _font("regular", self.px(SMALL_PX))
         self.f_mark = _font("heavy", self.px(13))
         self._base_cache: dict[tuple[int, int], Image.Image] = {}
+        self._scene_cache: dict = {}
         self._glow = self._make_glow()
         self._marks = {k: kong_icon(k, self.px(MARK)) for k in ("idle", "busy", "error")}
 
@@ -224,13 +224,14 @@ class Painter:
         shape = Image.new("L", (w * ss, h * ss), 0)
         ImageDraw.Draw(shape).rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), radius=r * ss, fill=CARD_ALPHA)
         card.putalpha(shape.resize((w, h), Image.LANCZOS))
-        # A hairline rim, brighter along the top like light catching the edge.
+        # A hairline rim, bright along the top like light catching a machined aluminium edge.
         rim = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
         ImageDraw.Draw(rim).rounded_rectangle(
             (0, 0, w * ss - 1, h * ss - 1), radius=r * ss, outline=(255, 255, 255, 255), width=ss * max(1, round(self.s))
         )
         rim = rim.resize((w, h), Image.LANCZOS)
-        fade = (np.linspace(34, 12, h)[:, None] * np.ones((1, w))).astype(np.float32)
+        fade = (np.concatenate([np.linspace(72, 22, min(h, self.px(14))), np.linspace(22, 10, max(0, h - self.px(14)))])[:, None]
+                * np.ones((1, w))).astype(np.float32)
         a = (np.asarray(rim.getchannel("A"), np.float32) * fade / 255).astype(np.uint8)
         rim.putalpha(Image.fromarray(a, "L"))
         card.alpha_composite(rim)
@@ -259,75 +260,128 @@ class Painter:
     # --- the main window's header graphic -------------------------------------------------
 
     def block(self, v: View, w: int, h: int) -> Image.Image:
-        """A cassette-label tile whose geometry shows the state, drawn 3× and scaled down."""
-        ss = 3
+        """The key visual in small: four pillars on a plinth under a soft spotlight. The
+        aluminium one's orange glass holds a waveform: your voice while listening, a band of
+        light running up it while working, dark on an error."""
+        ss = 2
         W, H = w * ss, h * ss
         u = self.s * ss  # one 96-dpi pixel in this drawing
         k = v.kind
-        bg = ORANGE if k in ("work", "ok", "warn") else INK
-        img = Image.new("RGBA", (W, H), bg + (255,))
+        if k == "listen":
+            glow = 0.55 + 0.45 * v.level
+        elif k == "work":
+            glow = 0.6 + 0.25 * (0.5 + 0.5 * math.sin(v.t * 2 * math.pi / 1.3))
+        elif k == "error":
+            glow = 0.1
+        elif k == "warn":
+            glow = 0.5
+        else:
+            glow = 0.8
+
+        heights = (18, 36, 46, 26)
+        floor = H - 15 * u
+        scale = (floor - 9 * u) / max(heights)
+        pw, gap = 15 * u, 9 * u
+        x0 = (W - (4 * pw + 3 * gap)) / 2 - 3 * u
+
+        def lean(hh: float) -> float:
+            return 7 * u * hh / (max(heights) * scale)
+
+        scene, halo = self._block_scene(W, H, u, floor, x0 + pw + gap, pw, heights[1] * scale, lean(heights[1] * scale))
+        img = scene.copy()
+        tint = Image.new("RGBA", (W, H), ORANGE + (0,))
+        tint.putalpha(halo.point(lambda a: int(a * 0.55 * glow)))
+        img.alpha_composite(tint)
         d = ImageDraw.Draw(img)
 
-        if k == "listen":
-            self._dot_meter(d, v, W, H, u)
-        elif k == "work":
-            # Black stripes sliding to the right, like tape running.
-            band, period = 10 * u, 22 * u
-            off = (v.t * 46 * u) % period
-            x = -H - period + off
-            while x < W + period:
-                d.polygon([(x, H), (x + band, H), (x + band + H * 0.6, 0), (x + H * 0.6, 0)], fill=INK)
-                x += period
-        elif k == "ok":
-            # Quarter rings from the bottom-left corner, sweeping in.
-            sweep = 90 * _ease(v.t / 0.45)
-            cx, cy = 0, H
-            band, gap = 12 * u, 10 * u
-            r = 18 * u
-            while r - band < max(W, H) * 1.5:
-                d.arc((cx - r, cy - r, cx + r, cy + r), 270, 270 + sweep, fill=INK, width=int(band))
-                r += band + gap
-        elif k in ("warn", "error"):
-            fg = INK if k == "warn" else ORANGE
-            c = W / 2
-            top, bot = H / 2 - 24 * u, H / 2 + 24 * u
-            d.rectangle((c - 6 * u, top, c + 6 * u, bot - 18 * u), fill=fg)
-            d.rectangle((c - 6 * u, bot - 11 * u, c + 6 * u, bot + 1 * u), fill=fg)
-        else:
-            # A checker of four orange squares.
-            q = 16 * u
-            cx, cy = W / 2, H / 2
-            for i, j in ((0, 0), (1, 1)):
-                d.rectangle((cx - q + i * q, cy - q + j * q, cx + i * q, cy + j * q), fill=ORANGE)
+        for i, hh in enumerate(heights):
+            hh *= scale
+            x = x0 + i * (pw + gap)
+            ln = lean(hh)
+            poly = [(x, floor), (x + pw, floor), (x + pw + ln, floor - hh), (x + ln, floor - hh)]
+            if i != 1:
+                d.polygon(poly, fill=(24, 27, 29))
+                # Edges: cool light from above on the left, orange from the lit pillar on the side facing it.
+                d.line((x, floor, x + ln, floor - hh), fill=(64, 70, 73), width=max(1, int(1.2 * u)))
+                near = (x + pw, floor, x + pw + ln, floor - hh) if i == 0 else (x, floor, x + ln, floor - hh)
+                if i in (0, 2):
+                    a = 0.65 * glow
+                    edge = tuple(int(c * a + 24 * (1 - a)) for c in ORANGE)
+                    d.line(near, fill=edge, width=max(1, int(1.6 * u)))
+                d.line((x + ln, floor - hh, x + pw + ln, floor - hh), fill=(78, 84, 87), width=max(1, int(u)))
+                continue
+            d.polygon(poly, fill=ALU)
+            d.line((x, floor, x + ln, floor - hh), fill=(232, 235, 236), width=max(1, int(1.2 * u)))
+            self._core(d, v, x, floor, pw, hh, ln, u, glow)
         return img.resize((w, h), Image.LANCZOS)
 
-    def _dot_meter(self, d: ImageDraw.ImageDraw, v: View, W: int, H: int, u: float) -> None:
-        """A fine grid of dots: each column is a moment of your voice, newest on the right,
-        lit outward from the middle row like a waveform."""
-        cell = CELL * u
-        pad = 10 * u
-        cols = max(3, int((W - 2 * pad) // cell))
-        rows = max(3, int((H - 2 * pad) // cell))
-        gx = (W - cols * cell) / 2
-        gy = (H - rows * cell) / 2
-        hist = (list(v.history) + [v.level])[-cols:]
-        hist = [0.0] * (cols - len(hist)) + hist
-        mid = (rows - 1) / 2
-        rmax = cell * 0.36
-        for ci, lv in enumerate(hist):
-            reach = lv * (mid + 0.5)  # how far from the middle row this moment lights up
-            cx = gx + ci * cell + cell / 2
-            for ri in range(rows):
-                cy = gy + ri * cell + cell / 2
-                f = max(0.0, min(1.0, reach - abs(ri - mid) + 0.5))
-                if ci == cols - 1 or lv > 0.02:
-                    f = max(f, 1.0 if abs(ri - mid) < 0.6 else 0.0)  # the middle row is always on
-                if f > 0.05:
-                    r = rmax * (0.45 + 0.55 * f)
-                    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=ORANGE)
-                else:
-                    r = rmax * 0.32
-                    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=DIM_DOT)
+    def _block_scene(self, W: int, H: int, u: float, floor: float, lx: float, pw: float, lh: float, ln: float):
+        """What does not move: graphite under a spotlight, the plinth, edges melting into the
+        window, and the shape of the glow. Cached per size; a frame then costs a few ms."""
+        key = (W, H)
+        if key in self._scene_cache:
+            return self._scene_cache[key]
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        spot = np.exp(-(((xx - W * 0.5) / (W * 0.36)) ** 2 + ((yy + H * 0.1) / (H * 0.85)) ** 2))
+        base = np.array(BG, np.float32)
+        lift = np.array((54, 60, 62), np.float32) - base
+        arr = base + lift * spot[..., None]
+        img = Image.fromarray(arr.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+        d = ImageDraw.Draw(img)
+        d.rectangle((0, floor, W, floor + 4 * u), fill=(44, 49, 51))  # the plinth's top face
+        d.rectangle((0, floor + 4 * u, W, H), fill=(14, 17, 18))
+        # Melt the edges into the window so it reads as a scene, not a pasted picture.
+        ex = np.clip(np.minimum(xx / (W * 0.22), (W - 1 - xx) / (W * 0.12)), 0, 1)
+        ey = np.clip(yy / (H * 0.12), 0, 1)
+        mask = Image.fromarray((ex * ey * 255).astype(np.uint8), "L")
+        img = Image.composite(img, Image.new("RGBA", (W, H), BG + (255,)), mask)
+
+        # The glow spills onto the plinth and the neighbours, behind the pillars.
+        halo = Image.new("L", (W, H), 0)
+        hd = ImageDraw.Draw(halo)
+        hd.polygon([(lx, floor), (lx + pw, floor), (lx + pw + ln, floor - lh), (lx + ln, floor - lh)], fill=255)
+        hd.ellipse((lx - 10 * u, floor - 2 * u, lx + pw + 10 * u, floor + 5 * u), fill=200)
+        halo = halo.filter(ImageFilter.GaussianBlur(9 * u))
+        self._scene_cache = {key: (img, halo)}
+        return img, halo
+
+    def _core(self, d: ImageDraw.ImageDraw, v: View, x: float, floor: float, pw: float, hh: float, ln: float,
+              u: float, glow: float) -> None:
+        """The orange glass in the aluminium pillar, and the waveform inside it."""
+        fx, ft = 3.2 * u, 5 * u
+        top, bot = floor - hh + ft, floor - ft
+
+        def at(y: float) -> float:  # left edge of the glass at height y, following the lean
+            return x + fx + ln * (floor - y) / hh
+
+        cw = pw - 2 * fx
+        dark = (58, 24, 8)
+        core = tuple(int(dark[i] + (ORANGE[i] - dark[i]) * glow * 0.85) for i in range(3))
+        d.polygon([(at(bot), bot), (at(bot) + cw, bot), (at(top) + cw, top), (at(top), top)], fill=core)
+
+        n = max(8, int((bot - top) / (1.5 * u)))
+        if v.kind == "listen":
+            hist = (list(v.history) + [v.level])[-n:]
+            amps = [0.0] * (n - len(hist)) + hist  # bottom = oldest, top = now
+        else:
+            # A burst in the middle, ragged like speech.
+            amps = [
+                math.exp(-(((i - n / 2) / (n / 4.5)) ** 2)) * (0.15 + 0.85 * abs(math.sin(i * 2.3) + 0.6 * math.sin(i * 5.1)) / 1.6)
+                for i in range(n)
+            ]
+        hot = (255, 214, 168) if v.kind != "error" else ERROR_TEXT
+        band = ((v.t / 1.4) % 1.0) * (n + 6) - 3 if v.kind == "work" else None
+        for i, a in enumerate(amps):
+            y = bot - (i + 0.5) * (bot - top) / n
+            b = glow
+            if band is not None:
+                b = min(1.0, glow * 0.6 + max(0.0, 1 - abs(i - band) / 3))
+            cx = at(y) + cw / 2
+            half = max(0.6 * u, (cw / 2 - 0.8 * u) * min(1.0, a))
+            col = tuple(int(core[j] + (hot[j] - core[j]) * b) for j in range(3))
+            d.line((cx - half, y, cx + half, y), fill=col, width=max(1, int(0.7 * u)))
+        d.line((at(bot) + cw / 2, bot, at(top) + cw / 2, top), fill=tuple(int(c * 0.5 + h * 0.5) for c, h in zip(core, hot)),
+               width=max(1, int(0.7 * u)))
 
     # --- one frame -----------------------------------------------------------------------
 
@@ -479,8 +533,8 @@ class Panel:
             pass
         r.attributes("-topmost", True)
         if not IS_WIN:
-            r.configure(bg="#3a3a38")
-            self._label = tk.Label(r, bd=0, highlightthickness=0, bg="#3a3a38")
+            r.configure(bg="#1d2122")
+            self._label = tk.Label(r, bd=0, highlightthickness=0, bg="#1d2122")
             self._label.pack()
             r.attributes("-alpha", 0.0)
         r.geometry("1x1+-20000+-20000")
@@ -597,7 +651,7 @@ class Panel:
             return
         from PIL import ImageTk
 
-        flat = Image.new("RGBA", img.size, (58, 58, 56, 255))
+        flat = Image.new("RGBA", img.size, (29, 33, 34, 255))
         flat.alpha_composite(img)
         self._photo = ImageTk.PhotoImage(flat.convert("RGB"))
         self._label.configure(image=self._photo)

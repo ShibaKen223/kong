@@ -23,7 +23,7 @@ from .. import DISPLAY_NAME, __version__, meeting, models, paths
 from ..config import ENGINES, HOTKEYS, PASTE_METHODS, POLISH_MODES
 from ..polish import prompt
 from . import theme
-from .icon import kong_icon
+from .icon import glyph, kong_icon
 from .panel import HISTORY, Painter, View
 from .tray import CLAUDE_MODELS
 
@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 IS_WIN = sys.platform == "win32"
 FONT = theme.FONT
 REPO_URL = "https://github.com/ShibaKen223/kong"
-BLOCK = (168, 76)  # the state graphic in the header, at 96 dpi
+BLOCK = (220, 92)  # the state graphic in the header, at 96 dpi
 PLACEHOLDER = "點這裡，然後試著說一句話。"
 
 
@@ -73,13 +73,14 @@ class MainWindow:
 
     def _theme(self) -> None:
         theme.apply(self.root)
-        self.win.configure(bg=theme.PAPER)
+        self.win.configure(bg=theme.BG)
         self._text_colors = theme.TEXT_COLORS
         try:
             self._scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
         except tk.TclError:
             self._scale = 1.0
         self._painter = Painter(self._scale)
+        self._glyphs: list[ImageTk.PhotoImage] = []
 
     def _paint_title_bar(self) -> None:
         if not IS_WIN:
@@ -88,12 +89,12 @@ class MainWindow:
 
         try:
             hwnd = int(self.win.wm_frame(), 16)
-            win32.set_caption_colors(hwnd, theme.PAPER, theme.INK, theme.INK)
+            win32.set_caption_colors(hwnd, theme.BG, theme.FG, theme.LINE)
         except (tk.TclError, ValueError, OSError):
             log.debug("could not colour the title bar", exc_info=True)
 
     def _build_header(self) -> None:
-        """A cassette label: wordmark and state on paper, the state graphic flush right."""
+        """Wordmark and state on the left, the four pillars flush right."""
         head = ttk.Frame(self.win)
         head.pack(fill="x", side="top")
         self.hd_block = ttk.Label(head, padding=0)
@@ -106,25 +107,19 @@ class MainWindow:
         ttk.Label(top, text="講", style="Title.TLabel").pack(side="left", padx=(6, 0))
         meta = ttk.Frame(left)
         meta.pack(fill="x", pady=(2, 0))
-        self.hd_dot = tk.Canvas(meta, width=8, height=8, highlightthickness=0, bg=theme.PAPER)
+        self.hd_dot = tk.Canvas(meta, width=8, height=8, highlightthickness=0, bg=theme.BG)
         self.hd_dot.pack(side="left", padx=(1, 7))
-        self._hd_dot = self.hd_dot.create_rectangle(0, 0, 8, 8, fill=theme.ORANGE, outline="")
+        self._hd_dot = self.hd_dot.create_oval(0, 0, 8, 8, fill=theme.ORANGE, outline="")
         self.hd_state = ttk.Label(meta, text="", style="Meta.TLabel")
         self.hd_state.pack(side="left")
-        ttk.Frame(self.win, style="Ink.TFrame", height=1).pack(fill="x", side="top")
+        ttk.Frame(self.win, style="Rule.TFrame", height=1).pack(fill="x", side="top")
 
-    def _section(self, parent, num: str, title: str, hint: str = "") -> None:
-        row = ttk.Frame(parent)
-        row.pack(fill="x")
-        ttk.Label(row, text=num, style="Num.TLabel").pack(side="left", padx=(0, 8))
-        ttk.Label(row, text=title, style="Key.TLabel").pack(side="left")
-        if hint:
-            ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=820, justify="left").pack(anchor="w", pady=(2, 0))
-
-    def _box(self, parent, num: str, title: str) -> ttk.LabelFrame:
-        """A hairline box whose label is an orange number and a bold title."""
+    def _box(self, parent, icon: str, title: str) -> ttk.LabelFrame:
+        """A hairline box whose label is a small orange line icon and a bold title."""
         label = ttk.Frame(parent)
-        ttk.Label(label, text=num, style="Num.TLabel").pack(side="left", padx=(0, 6))
+        img = ImageTk.PhotoImage(glyph(icon, int(round(18 * self._scale))), master=self.win)
+        self._glyphs.append(img)  # Tk drops images nobody holds on to
+        ttk.Label(label, image=img).pack(side="left", padx=(0, 8))
         ttk.Label(label, text=title, style="Key.TLabel").pack(side="left")
         return ttk.LabelFrame(parent, labelwidget=label, padding=12)
 
@@ -151,7 +146,7 @@ class MainWindow:
         w, h = (int(round(n * self._scale)) for n in BLOCK)
         self._block_img = ImageTk.PhotoImage(self._painter.block(v, w, h), master=self.win)
         self.hd_block.configure(image=self._block_img)
-        self.hd_dot.itemconfigure(self._hd_dot, fill=theme.INK if kind == "ok" else theme.ORANGE)
+        self.hd_dot.itemconfigure(self._hd_dot, fill=theme.FG_FAINT if kind == "ok" else theme.ORANGE)
 
     def _animate(self) -> None:
         """Run the header graphic while something is happening; idle frames cost nothing."""
@@ -244,13 +239,13 @@ class MainWindow:
     def _show_placeholder(self) -> None:
         self.try_box.delete("1.0", "end")
         self.try_box.insert("1.0", PLACEHOLDER)
-        self.try_box.configure(fg=theme.INK_FAINT)
+        self.try_box.configure(fg=theme.FG_FAINT)
         self._placeholder = True
 
     def _clear_placeholder(self) -> None:
         if self._placeholder:
             self.try_box.delete("1.0", "end")
-            self.try_box.configure(fg=theme.INK)
+            self.try_box.configure(fg=theme.FG)
             self._placeholder = False
 
     def _fill_history(self) -> None:
@@ -458,7 +453,7 @@ class MainWindow:
         right = ttk.Frame(cols)
         right.pack(side="left", fill="both", expand=True)
 
-        eng = self._box(left, "01", "辨識引擎")
+        eng = self._box(left, "mic", "辨識引擎")
         eng.pack(fill="x")
         self.v_engine = tk.StringVar(value=cfg.engine)
         self.engine_notes: dict[str, ttk.Label] = {}
@@ -474,7 +469,7 @@ class MainWindow:
         self.s_gpu = ttk.Label(eng, text="", style="Hint.TLabel", wraplength=380, justify="left")
         self.s_gpu.pack(anchor="w", pady=(4, 0))
 
-        pol = self._box(left, "02", "整理")
+        pol = self._box(left, "spark", "整理")
         pol.pack(fill="x", pady=(12, 0))
         self.v_polish = tk.StringVar(value=cfg.polish)
         for key, label in POLISH_MODES.items():
@@ -493,21 +488,21 @@ class MainWindow:
         self.s_polish = ttk.Label(pol, text="", style="Hint.TLabel", wraplength=380, justify="left")
         self.s_polish.pack(anchor="w", pady=(6, 0))
 
-        hk = self._box(right, "03", "快捷鍵")
+        hk = self._box(right, "key", "快捷鍵")
         hk.pack(fill="x")
         self.v_hotkey = tk.StringVar(value=HOTKEYS[cfg.hotkey])
         hcb = ttk.Combobox(hk, textvariable=self.v_hotkey, values=list(HOTKEYS.values()), state="readonly", width=14)
         hcb.pack(anchor="w")
         hcb.bind("<<ComboboxSelected>>", lambda e: self.app.set_option("hotkey", self._key_of(HOTKEYS, self.v_hotkey.get())))
 
-        pst = self._box(right, "04", "貼上")
+        pst = self._box(right, "paste", "貼上")
         pst.pack(fill="x", pady=(12, 0))
         self.v_paste = tk.StringVar(value=cfg.paste_method)
         for key, label in PASTE_METHODS.items():
             ttk.Radiobutton(pst, text=label, value=key, variable=self.v_paste,
                             command=lambda: self.app.set_option("paste_method", self.v_paste.get())).pack(anchor="w")
 
-        gen = self._box(right, "05", "一般")
+        gen = self._box(right, "sliders", "一般")
         gen.pack(fill="x", pady=(12, 0))
         self.v_live = tk.BooleanVar(value=cfg.live_preview)
         ttk.Checkbutton(gen, text="邊講邊顯示文字", variable=self.v_live,
