@@ -64,7 +64,7 @@ class Tray:
         """Only the everyday actions; every setting lives in the main window's 設定."""
         app = self.app
         # default=True: a left click on the tray icon opens the main window.
-        yield pystray.MenuItem("開啟 Kong", lambda icon, it: app.show_main(), default=True)
+        yield pystray.MenuItem("開啟 KONG", lambda icon, it: app.show_main(), default=True)
         if app.download_status:
             yield pystray.MenuItem(app.download_status, None, enabled=False)
         if app.models_missing:
@@ -78,4 +78,4 @@ class Tray:
             yield pystray.MenuItem("● 開始會議記錄", lambda icon, it: self._start_meeting(), enabled=app.state == "idle")
         yield pystray.MenuItem("複製上一句", lambda icon, it: app.copy_last(), enabled=app.history.has_items())
         yield pystray.Menu.SEPARATOR
-        yield pystray.MenuItem("結束 Kong", lambda icon, it: app.quit())
+        yield pystray.MenuItem("結束 KONG", lambda icon, it: app.quit())

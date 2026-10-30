@@ -85,7 +85,7 @@ class Learner:
         return items[:MAX_TERMS]
 
     def _write_terms(self) -> None:
-        lines = ["# Kong 從你說過的話自動學到的詞（會自動更新）。不要的詞請在主視窗「常用詞」移除。"]
+        lines = ["# KONG 從你說過的話自動學到的詞（會自動更新）。不要的詞請在主視窗「常用詞」移除。"]
         lines += [t for t, _ in self.terms()]
         tmp = self.learned_file.with_suffix(".tmp")
         tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")

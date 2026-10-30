@@ -1,4 +1,4 @@
-"""Kong 的主視窗：首頁、會議記錄、常用詞、設定。
+"""KONG 的主視窗：首頁、會議記錄、常用詞、設定。
 
 Opens when Kong.exe is started (also when started again while Kong is running) and from a
 left click on the tray icon. Closing it only hides it: Kong keeps running in the tray.
@@ -104,7 +104,6 @@ class MainWindow:
         top = ttk.Frame(left)
         top.pack(fill="x")
         ttk.Label(top, text="KONG", style="Mark.TLabel").pack(side="left")
-        ttk.Label(top, text="講", style="Title.TLabel").pack(side="left", padx=(6, 0))
         meta = ttk.Frame(left)
         meta.pack(fill="x", pady=(2, 0))
         self.hd_dot = tk.Canvas(meta, width=8, height=8, highlightthickness=0, bg=theme.BG)
@@ -183,8 +182,8 @@ class MainWindow:
         if not self._told_background:
             self._told_background = True
             self.app.panel.show(
-                "info", "Kong 還在背景執行",
-                f"連按兩下「{self.app.hotkey_label()}」就能說話；點右下角系統匣的 Kong 圖示可以再打開視窗。",
+                "info", "KONG 還在背景執行",
+                f"連按兩下「{self.app.hotkey_label()}」就能說話；點右下角系統匣的 KONG 圖示可以再打開視窗。",
                 hide_after=4,
             )
 
@@ -276,7 +275,7 @@ class MainWindow:
             cap.configure(text=key)
         title, detail = app.headline()
         first_time = not app.history.has_items() and app.state == "idle"
-        self.h_title.configure(text="歡迎使用 Kong 講" if first_time else title)
+        self.h_title.configure(text="歡迎使用 KONG" if first_time else title)
 
         alert, button = "", False
         if app.models_missing:
@@ -377,7 +376,7 @@ class MainWindow:
         f = ttk.Frame(self.nb, padding=(6, 22, 6, 10))
         self.nb.add(f, text="常用詞")
         ttk.Label(f, text="常用詞", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(f, text="Kong 會從你說的話自動學人名、公司和專有名詞，之後就聽得更準。", style="Lead.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Label(f, text="KONG 會從你說的話自動學人名、公司和專有名詞，之後就聽得更準。", style="Lead.TLabel").pack(anchor="w", pady=(8, 0))
         top = ttk.Frame(f)
         top.pack(fill="x", pady=(18, 8))
         self.v_auto_gloss = tk.BooleanVar(value=self.app.cfg.auto_glossary)
@@ -435,7 +434,7 @@ class MainWindow:
     def _save_glossary(self) -> None:
         words = [w.strip() for w in self.g_text.get("1.0", "end").splitlines() if w.strip()]
         try:
-            paths.glossary_file().write_text("# Kong 常用詞：一行一個。\n" + "\n".join(words) + "\n", encoding="utf-8")
+            paths.glossary_file().write_text("# KONG 常用詞：一行一個。\n" + "\n".join(words) + "\n", encoding="utf-8")
             self.g_state.configure(text=f"已儲存 {len(words)} 個詞")
         except OSError as e:
             self.g_state.configure(text=f"存檔失敗：{e}")
@@ -515,7 +514,7 @@ class MainWindow:
         btns.pack(fill="x", pady=(14, 0))
         ttk.Button(btns, text="匯出診斷檔到桌面", command=self.app.export_diagnostics).pack(fill="x")
         ttk.Button(btns, text="開啟記錄檔資料夾", command=self.app.open_logs).pack(fill="x", pady=6)
-        ttk.Button(btns, text="結束 Kong", command=self.app.quit).pack(fill="x")
+        ttk.Button(btns, text="結束 KONG", command=self.app.quit).pack(fill="x")
         ttk.Label(right, text=f"{DISPLAY_NAME} {__version__}・{REPO_URL.removeprefix('https://')}", style="Hint.TLabel",
                   wraplength=380, justify="left").pack(anchor="w", pady=(12, 0))
 

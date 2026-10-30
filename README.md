@@ -1,6 +1,6 @@
-# Kong 講
+# KONG
 
-![Kong 講](docs/key-visual.webp)
+![KONG](docs/key-visual.webp)
 
 **Windows 上的繁體中文語音輸入。在任何文字框連按兩下右 Ctrl、講一句話，整理好的書面繁中直接貼進游標。**
 
@@ -8,14 +8,14 @@
 
 ## 主視窗
 
-雙擊 `Kong.exe`（或點右下角系統匣的 Kong 圖示）會打開主視窗：
+雙擊 `Kong.exe`（或點右下角系統匣的 KONG 圖示）會打開主視窗：
 
 - **首頁**：現在用哪個辨識引擎、有沒有顯示卡、Claude Code 整理是否正常。按「**測試整理**」會直接告訴你整理為什麼沒成功；「**試講一句**」可以講一句話，看辨識和整理的結果（不會貼到別的地方）。
 - **設定**：辨識引擎、整理方式、Claude 模型、快捷鍵、貼上方式、開機自動啟動。
 - **最近說過的話**：最近 20 句，按兩下就複製。
 - **常用詞**：人名、公司名、專有名詞，整理時優先用這些寫法。
 
-關掉視窗 Kong 還是在背景待命；再雙擊一次 `Kong.exe` 就會把視窗叫回來。
+關掉視窗 KONG 還是在背景待命；再雙擊一次 `Kong.exe` 就會把視窗叫回來。
 
 ## 會議記錄
 
@@ -23,7 +23,7 @@
 
 - **邊錄邊轉成文字**：每次有人停頓，前面講完的就先辨識好，主視窗看得到逐字稿一段一段出現。結束時只剩最後幾秒要處理。
 - **結束後整理成檔案**：請你的 Claude Code 寫出摘要、重點（附時間）、決議、待辦事項和待確認的問題，連同完整逐字稿存成 Markdown，自動打開。放在「文件\Kong 會議記錄」。
-- **不怕當掉**：錄音中每一段都馬上寫進「（錄音中）.txt」；就算中途結束 Kong，逐字稿也會留下。
+- **不怕當掉**：錄音中每一段都馬上寫進「（錄音中）.txt」；就算中途結束 KONG，逐字稿也會留下。
 - 錄音檔預設不留；要的話在「會議記錄」分頁勾「保留錄音檔」（一小時約 110 MB）。
 - 會議記錄和聽寫共用麥克風，錄音期間不能聽寫。
 - 只錄得到麥克風聽見的聲音：線上會議戴耳機時，對方的聲音不會被錄進去。
@@ -39,8 +39,8 @@
 ## 需要什麼
 
 - Windows 10 或 11（64 位元）
-- 要「整理」（去贅字、修改口、修錯字）：電腦上裝好 [Claude Code](https://code.claude.com/docs)，並用你自己的 Claude Pro／Max 訂閱登入過一次（在終端機執行 `claude`）。沒有的話 Kong 照樣能用，只是貼上的是轉成繁體、加好標點的原稿。
-- 有 NVIDIA 顯示卡更好：Kong 會自己偵測，問你要不要下載高準確度模型。
+- 要「整理」（去贅字、修改口、修錯字）：電腦上裝好 [Claude Code](https://code.claude.com/docs)，並用你自己的 Claude Pro／Max 訂閱登入過一次（在終端機執行 `claude`）。沒有的話 KONG 照樣能用，只是貼上的是轉成繁體、加好標點的原稿。
+- 有 NVIDIA 顯示卡更好：KONG 會自己偵測，問你要不要下載高準確度模型。
 
 ## 安裝
 
@@ -59,7 +59,7 @@
 | 整理 | 約 1.5～2.5 秒 | Claude Code 先在背景開好待命，模型一寫完就拿結果，不等 Claude Code 收尾 |
 | 貼上 | 不到 0.1 秒 | 剪貼簿＋Ctrl+V，一秒後把你原本的剪貼簿放回去 |
 
-Talky 每講一句都重新啟動一次 Claude Code，光啟動就要好幾秒；Kong 改成讓一個 Claude Code 程式預先待命，每句用完就換一個新的，所以每句仍然是乾淨的、不帶前文。
+Talky 每講一句都重新啟動一次 Claude Code，光啟動就要好幾秒；KONG 改成讓一個 Claude Code 程式預先待命，每句用完就換一個新的，所以每句仍然是乾淨的、不帶前文。
 
 ## 辨識引擎
 
@@ -73,7 +73,7 @@ Talky 每講一句都重新啟動一次 Claude Code，光啟動就要好幾秒�
 
 ## 整理：用你自己的 Claude 訂閱
 
-Kong 不經手任何帳號或金鑰：它呼叫你電腦上已經登入的官方 Claude Code，登入、計費都是 Claude Code 自己處理，算你自己訂閱的額度。
+KONG 不經手任何帳號或金鑰：它呼叫你電腦上已經登入的官方 Claude Code，登入、計費都是 Claude Code 自己處理，算你自己訂閱的額度。
 
 呼叫時完全隔離：不給任何工具、不載入你的 CLAUDE.md、外掛和 MCP（`--safe-mode`）、在一個空資料夾裡跑、不留對話紀錄、移除 `ANTHROPIC_API_KEY`（確保用訂閱，不是 API 計費）。它只做一件事：把這一句口語整理成書面中文。
 
@@ -111,9 +111,9 @@ Kong 不經手任何帳號或金鑰：它呼叫你電腦上已經登入的官方
 
 **筆電沒有右 Ctrl（被 Copilot 鍵取代）**：系統匣圖示 →「快捷鍵」改成右 Alt 或右 Shift。注意右 Alt 在某些程式會順便打開選單列。
 
-**連按沒反應**：確認系統匣有 Kong 圖示。部分防毒軟體會擋「監聽鍵盤」的程式，請把 Kong 加進白名單。
+**連按沒反應**：確認系統匣有 KONG 圖示。部分防毒軟體會擋「監聽鍵盤」的程式，請把 KONG 加進白名單。
 
-**貼不進去，面板說「已放進剪貼簿」**：目標視窗是以系統管理員身分執行的（例如系統管理員的終端機），Windows 不允許一般程式對它送按鍵。按 Ctrl+V 就好，或把 Kong 也用系統管理員身分執行。
+**貼不進去，面板說「已放進剪貼簿」**：目標視窗是以系統管理員身分執行的（例如系統管理員的終端機），Windows 不允許一般程式對它送按鍵。按 Ctrl+V 就好，或把 KONG 也用系統管理員身分執行。
 
 **麥克風沒有聲音**：Windows 設定 → 隱私權與安全性 → 麥克風 → 打開「讓桌面應用程式存取您的麥克風」。
 
@@ -142,4 +142,4 @@ pyinstaller packaging/kong.spec --noconfirm
 
 ## 用到的開源專案
 
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0）、[SenseVoice](https://github.com/FunAudioLLM/SenseVoice) 模型（[FunASR Model License](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)）、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) 模型（Apache-2.0）、[Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)（MIT）、[faster-whisper](https://github.com/SYSTRAN/faster-whisper)（MIT）、[CTranslate2](https://github.com/OpenNMT/CTranslate2)（MIT）、Whisper large-v3-turbo 模型（MIT）、[OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0）、[pynput](https://github.com/moses-palmer/pynput) 與 [pystray](https://github.com/moses-palmer/pystray)（LGPL-3.0）、[python-sounddevice](https://github.com/spatialaudio/python-sounddevice)／PortAudio（MIT）、[Pillow](https://github.com/python-pillow/Pillow)、[NumPy](https://numpy.org)、[PyAV](https://github.com/PyAV-Org/PyAV)（FFmpeg，LGPL）。NVIDIA cuBLAS 不隨 Kong 散布：選用顯示卡模式時，從 PyPI 上 NVIDIA 官方套件直接下載到你的電腦。
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0）、[SenseVoice](https://github.com/FunAudioLLM/SenseVoice) 模型（[FunASR Model License](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)）、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) 模型（Apache-2.0）、[Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)（MIT）、[faster-whisper](https://github.com/SYSTRAN/faster-whisper)（MIT）、[CTranslate2](https://github.com/OpenNMT/CTranslate2)（MIT）、Whisper large-v3-turbo 模型（MIT）、[OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0）、[pynput](https://github.com/moses-palmer/pynput) 與 [pystray](https://github.com/moses-palmer/pystray)（LGPL-3.0）、[python-sounddevice](https://github.com/spatialaudio/python-sounddevice)／PortAudio（MIT）、[Pillow](https://github.com/python-pillow/Pillow)、[NumPy](https://numpy.org)、[PyAV](https://github.com/PyAV-Org/PyAV)（FFmpeg，LGPL）。NVIDIA cuBLAS 不隨 KONG 散布：選用顯示卡模式時，從 PyPI 上 NVIDIA 官方套件直接下載到你的電腦。

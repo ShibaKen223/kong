@@ -181,7 +181,7 @@ def cmd_selftest(args) -> None:
         from . import win32
 
         def clip():
-            win32.set_clipboard_text("Kong 剪貼簿測試")
+            win32.set_clipboard_text("KONG 剪貼簿測試")
             with win32.Clipboard() as cb:
                 return cb.get_text()
 

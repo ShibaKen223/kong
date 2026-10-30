@@ -258,7 +258,7 @@ class App:
                 "error",
                 "語音模型下載失敗" if isinstance(e, models.DownloadError) else "語音模型載入失敗",
                 str(e)[:200],
-                hint="檢查網路後，在 Kong 主視窗按「重新下載語音模型」",
+                hint="檢查網路後，在 KONG 主視窗按「重新下載語音模型」",
                 hide_after=10,
             )
             self.tray.refresh()
@@ -272,7 +272,7 @@ class App:
                 "ok",
                 "準備好了",
                 f"在任何文字框連按兩下「{self.hotkey_label()}」開始說話，講完再按一下。",
-                hint="設定都在 Kong 主視窗（點右下角系統匣的 Kong 圖示）",
+                hint="設定都在 KONG 主視窗（點右下角系統匣的 KONG 圖示）",
                 hide_after=8,
             )
 
@@ -340,7 +340,7 @@ class App:
                 f"偵測到 NVIDIA 顯示卡：{g.describe()}。\n\n"
                 "要下載 Whisper 模型嗎？這是 Talky 用的同一個模型，中英夾雜、口音都準很多。\n"
                 "需要下載約 2 GB（語音模型 1.6 GB＋顯示卡元件 0.4 GB），下載時可以照常使用。\n\n"
-                "之後也可以在 Kong 主視窗的「設定」切換。",
+                "之後也可以在 KONG 主視窗的「設定」切換。",
                 DISPLAY_NAME,
                 yes_no=True,
             )
@@ -419,7 +419,7 @@ class App:
             self._stop_recording()
         elif self.state == "loading":
             if self.models_missing:
-                self.panel.show("error", "語音模型還沒裝好", hint="在 Kong 主視窗按「重新下載語音模型」", hide_after=4)
+                self.panel.show("error", "語音模型還沒裝好", hint="在 KONG 主視窗按「重新下載語音模型」", hide_after=4)
             else:
                 self.panel.show("info", "還在準備語音模型", self.download_status or "請稍候幾秒", hide_after=2.5)
 
@@ -637,7 +637,7 @@ class App:
                 self._finish(cancel, "ok", "已貼上", o.final, hide=1.6)
         except Exception as e:
             log.exception("dictation failed")
-            self._finish(cancel, "error", "出錯了", str(e)[:200], hint="可以在 Kong 主視窗匯出診斷檔", hide=8)
+            self._finish(cancel, "error", "出錯了", str(e)[:200], hint="可以在 KONG 主視窗匯出診斷檔", hide=8)
 
     # --- 會議記錄 ---------------------------------------------------------------------------
 
@@ -647,7 +647,7 @@ class App:
             if self.engine is None:
                 return "語音模型還沒準備好"
             if self.state != "idle":
-                return "Kong 正在忙，稍後再試"
+                return "KONG 正在忙，稍後再試"
             err = self._open_mic()
             if err:
                 return f"麥克風打不開：{err}"
@@ -747,7 +747,7 @@ class App:
         m, self.meeting = self.meeting, None
         if m is not None:
             m.finish()
-            m.write(note_error="會議還在錄的時候結束了 Kong", engine_label=self.engine.label if self.engine else "")
+            m.write(note_error="會議還在錄的時候結束了 KONG", engine_label=self.engine.label if self.engine else "")
 
     # --- 常用詞 learned from what is said ------------------------------------------------------
 
@@ -785,7 +785,7 @@ class App:
             if self.engine is None:
                 return "語音模型還沒準備好"
             if self.state != "idle":
-                return "Kong 正在忙，稍後再試"
+                return "KONG 正在忙，稍後再試"
             err = self._open_mic()
             if err:
                 return f"麥克風打不開：{err}"
@@ -898,7 +898,7 @@ class App:
             "claude_version": self.polisher.version,
             "download": self.download_status,
         }
-        f = paths.desktop_dir() / f"Kong-診斷-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+        f = paths.desktop_dir() / f"KONG-診斷-{time.strftime('%Y%m%d-%H%M%S')}.txt"
         f.write_text(doctor.report(self.cfg, state), encoding="utf-8-sig")
         self.panel.show("ok", "診斷檔已存到桌面", f.name, hint="回報問題時附上這個檔案（不含你說過的話）", hide_after=5)
         return str(f)
@@ -962,7 +962,7 @@ def main(argv: list[str] | None = None) -> None:
         if not win32.single_instance("Local\\Kong-dictation-instance"):
             # Already running: ask that copy to show its window, and leave.
             if not win32.signal_event(SHOW_EVENT):
-                win32.message_box("Kong 已經在執行了：看右下角系統匣的麥克風圖示。", DISPLAY_NAME)
+                win32.message_box("KONG 已經在執行了：看右下角系統匣的麥克風圖示。", DISPLAY_NAME)
             return
         win32.set_dpi_aware()
     App(Config.load()).run(show_window="--background" not in argv)

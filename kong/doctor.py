@@ -15,7 +15,7 @@ from .polish.claude_code import find_claude
 
 def report(cfg: Config, app_state: dict | None = None) -> str:
     lines = [
-        f"Kong {__version__} 診斷檔  {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"KONG {__version__} 診斷檔  {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"系統：{platform.platform()}  Python {sys.version.split()[0]}  {'frozen' if getattr(sys, 'frozen', False) else 'source'}",
         "",
         "## 設定",
