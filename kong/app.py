@@ -26,6 +26,7 @@ from . import DISPLAY_NAME, __version__, audio, doctor, gpu, meeting, models, pa
 from .config import HOTKEYS, Config
 from .history import History
 from .hotkey import HotkeyListener
+from .learn import Learner
 from .paste import Result, copy, paste
 from .polish import prompt
 from .polish.claude_code import ClaudeCodePolisher, PolishError
@@ -73,6 +74,7 @@ class App:
         self.history = History(paths.history_file())
         self.recorder = audio.Recorder(cfg.mic_device)
         self.polisher = ClaudeCodePolisher(cfg)
+        self.learner = Learner(paths.glossary_file(), paths.learn_file())
         self._polisher_started = False
         self._events: queue.Queue[str] = queue.Queue()
         self._lock = threading.RLock()
@@ -614,6 +616,8 @@ class App:
 
             result = self.paste_fn(o.final, target, cfg.paste_method, cfg.restore_clipboard)
             self.history.add(o.final)
+            if not o.note and cfg.polish == "claude_code":
+                self._learn_from(o.raw, o.final)
             log.info(
                 "dictation: audio %.1fs, stt %.2fs (%s%s), polish %.2fs, total %.2fs, %s%s",
                 o.audio_s, o.t_stt, engine.id, f", {seg.submitted} segments" if seg else "",
@@ -708,6 +712,10 @@ class App:
                     except PolishError as e:
                         err = str(e)
             path = m.write(notes, err, self.engine.label if self.engine else "")
+            if notes and self.cfg.auto_glossary:
+                lines = [ln.text for ln in m.lines]
+                threading.Thread(target=self._learn_run, args=(lambda ask: self.learner.learn_text(lines, ask),),
+                                 name="learn", daemon=True).start()
             log.info("meeting saved: %.0f s, %d chars, notes %s", m.elapsed(), m.chars, "ok" if notes else err)
         except Exception as e:
             log.exception("saving the meeting failed")
@@ -737,6 +745,31 @@ class App:
         if m is not None:
             m.finish()
             m.write(note_error="會議還在錄的時候結束了 Kong", engine_label=self.engine.label if self.engine else "")
+
+    # --- 常用詞 learned from what is said ------------------------------------------------------
+
+    def _learn_from(self, raw: str, final: str) -> None:
+        if self.cfg.auto_glossary and self.learner.add(raw, final):
+            threading.Thread(target=self._learn_run, args=(self.learner.learn_pending,), name="learn", daemon=True).start()
+
+    def learn_now(self) -> None:
+        """From the 常用詞 tab: learn from what is waiting, without waiting for a full batch."""
+        threading.Thread(target=self._learn_run, args=(self.learner.learn_pending,), name="learn", daemon=True).start()
+
+    def _learn_run(self, job) -> None:
+        if not self.polisher.available:
+            self.learner.last_note = f"沒有學：{self.polisher.status}"
+            return
+        self.learner.last_note = "學習中…"
+        new = job(lambda system, message, timeout: self.polisher.complete(system, message, timeout, name="learn"))
+        if new:
+            log.info("glossary: %d new learned words", len(new))
+            # The warm Claude Code was started with the old word list: start a fresh one.
+            self.polisher.reconfigure(self.cfg)
+
+    def forget_word(self, term: str) -> None:
+        self.learner.remove(term)
+        self.polisher.reconfigure(self.cfg)
 
     def open_meetings(self) -> None:
         _open_path(paths.meetings_dir(self.cfg.meeting_dir))

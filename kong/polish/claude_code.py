@@ -447,13 +447,13 @@ class ClaudeCodePolisher:
             w.kill()
             self._prewarm_async()
 
-    def complete(self, system_prompt: str, message: str, timeout: float) -> str:
-        """One long answer with its own instructions (meeting notes): a fresh, isolated process
-        with the same flags as dictation, so the warm one stays ready for the next sentence."""
+    def complete(self, system_prompt: str, message: str, timeout: float, name: str = "meeting") -> str:
+        """One answer with its own instructions (meeting notes, learning words): a fresh,
+        isolated process with the same flags as dictation, so the warm one stays ready."""
         with self._lock:
             if self._argv is None:
                 raise PolishError(self.status)
-            prompt_file = paths.data_dir() / "claude-meeting-prompt.md"
+            prompt_file = paths.data_dir() / f"claude-{name}-prompt.md"
             prompt_file.write_text(system_prompt, encoding="utf-8")
             flags = [(k, str(prompt_file) if k == "--system-prompt-file" else v) for k, v in self._flags]
             argv = self._argv + _flatten(flags)
@@ -462,7 +462,7 @@ class ClaudeCodePolisher:
         try:
             return w.ask(message, timeout)
         finally:
-            log.info("claude wrote meeting notes in %.1fs", time.monotonic() - t0)
+            log.info("claude answered %s in %.1fs", name, time.monotonic() - t0)
             w.kill()
 
     def shutdown(self) -> None:

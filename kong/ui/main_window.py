@@ -130,7 +130,7 @@ class MainWindow:
         ttk.Label(row, text=num, style="Num.TLabel").pack(side="left", padx=(0, 8))
         ttk.Label(row, text=title, style="Key.TLabel").pack(side="left")
         if hint:
-            ttk.Label(parent, text=hint, style="Hint.TLabel").pack(anchor="w", pady=(2, 0))
+            ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=740, justify="left").pack(anchor="w", pady=(2, 0))
 
     def _box(self, parent, num: str, title: str) -> ttk.LabelFrame:
         """A hairline box whose label is an orange number and a bold title."""
@@ -513,22 +513,70 @@ class MainWindow:
     def _build_glossary(self) -> None:
         f = ttk.Frame(self.nb, padding=(4, 16, 4, 12))
         self.nb.add(f, text="常用詞")
-        ttk.Label(
-            f,
-            text="一行一個：人名、公司名、產品名、專有名詞（例如 Claude、王小明）。整理時遇到發音相近的字，會優先用這些寫法。以 # 開頭的行會被忽略。",
-            style="Hint.TLabel",
-            wraplength=680,
-            justify="left",
-        ).pack(anchor="w", pady=(0, 8))
-        self.g_text = tk.Text(f, wrap="word", font=(FONT, 11), relief="flat", padx=12, pady=10, undo=True,
+
+        # Learned: most of the list should fill itself in.
+        self._section(
+            f, "01", "自動學到的詞",
+            "每講 8 句、每場會議結束，Kong 會請 Claude Code 從你說過的話挑出人名、公司、產品和專有名詞（特別是常聽錯的），"
+            "辨識和整理都會優先用這些寫法。 不要的詞選起來按「移除」，之後不會再加回來。",
+        )
+        top = ttk.Frame(f)
+        top.pack(fill="x", pady=(8, 6))
+        self.v_auto_gloss = tk.BooleanVar(value=self.app.cfg.auto_glossary)
+        ttk.Checkbutton(top, text="自動學習", variable=self.v_auto_gloss,
+                        command=lambda: self.app.set_option("auto_glossary", self.v_auto_gloss.get())).pack(side="left")
+        self.l_state = ttk.Label(top, text="", style="Sub.TLabel")
+        self.l_state.pack(side="left", padx=12)
+        ttk.Button(top, text="移除選取的詞", command=self._forget_selected).pack(side="right")
+        ttk.Button(top, text="現在學一次", command=self._learn_now).pack(side="right", padx=(0, 8))
+        self.learned = ttk.Treeview(f, columns=("term", "n"), show="headings", selectmode="extended", height=5)
+        self.learned.heading("term", text="詞")
+        self.learned.heading("n", text="出現次數")
+        self.learned.column("term", width=520)
+        self.learned.column("n", width=120, stretch=False, anchor="center")
+        self.learned.pack(fill="both", expand=True)
+        self._learned_shown: list[tuple[str, int]] | None = None
+
+        # The user's own words, as before.
+        ttk.Separator(f).pack(fill="x", pady=12)
+        self._section(f, "02", "自己加的詞", "一行一個（例如 Claude、王小明）。自動學不到的詞放這裡；以 # 開頭的行會被忽略。")
+        self.g_text = tk.Text(f, wrap="word", font=(FONT, 11), relief="flat", padx=12, pady=8, undo=True, height=4,
                               **self._text_colors)
-        self.g_text.pack(fill="both", expand=True)
+        self.g_text.pack(fill="x", pady=(6, 0))
         bar = ttk.Frame(f)
         bar.pack(fill="x", pady=(8, 0))
         ttk.Button(bar, text="儲存", style="Accent.TButton", command=self._save_glossary).pack(side="left")
         self.g_state = ttk.Label(bar, text="", style="Sub.TLabel")
         self.g_state.pack(side="left", padx=12)
         self._load_glossary()
+
+    def _fill_learned(self) -> None:
+        learner = self.app.learner
+        terms = learner.terms()
+        if terms != self._learned_shown:
+            self._learned_shown = terms
+            self.learned.delete(*self.learned.get_children())
+            for t, n in terms:
+                self.learned.insert("", "end", iid=t, values=(t, n))
+        waiting = len(learner.pending)
+        state = f"已學到 {len(terms)} 個詞・再 {max(0, 8 - waiting)} 句會再學一次"
+        if learner.last_note:
+            state += f"・{learner.last_note}"
+        self.l_state.configure(text=state)
+        if self.v_auto_gloss.get() != self.app.cfg.auto_glossary:
+            self.v_auto_gloss.set(self.app.cfg.auto_glossary)
+
+    def _forget_selected(self) -> None:
+        for term in self.learned.selection():
+            self.app.forget_word(term)
+        self._fill_learned()
+
+    def _learn_now(self) -> None:
+        if not self.app.learner.pending:
+            self.l_state.configure(text="還沒有新的句子可以學：先用 Kong 講幾句話")
+            return
+        self.l_state.configure(text="學習中…（約 10 秒）")
+        self.app.learn_now()
 
     def _load_glossary(self) -> None:
         path = paths.glossary_file()
@@ -604,6 +652,7 @@ class MainWindow:
         self._sync_settings()
         self._fill_history()
         self._refresh_meeting()
+        self._fill_learned()
 
     def _sync_settings(self) -> None:
         """The tray menu changes settings too: show what is really in effect."""

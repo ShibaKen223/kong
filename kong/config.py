@@ -64,6 +64,9 @@ class Config:
     max_record_s: int = 300
     cjk_latin_space: bool = True
 
+    # Learn 常用詞 from what is said (a Claude Code pass every few dictations and per meeting).
+    auto_glossary: bool = True
+
     # 會議記錄: where the files go ("" = Documents\Kong 會議記錄) and whether to keep a .wav.
     meeting_dir: str = ""
     meeting_keep_audio: bool = False

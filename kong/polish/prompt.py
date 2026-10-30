@@ -66,6 +66,23 @@ MEETING_PROMPT = """\
 - 很短或幾乎沒有內容時，摘要照實寫，其他段落寫「（無）」。
 """
 
+LEARN_PROMPT = """\
+你幫一個語音輸入工具維護「常用詞表」：詞表裡的寫法，語音辨識和整理時都會優先使用。
+<samples> 裡是使用者最近說的話。每筆有 <final>（整理後的文字），可能還有 <raw>（語音辨識的原始結果）。
+
+找出值得放進詞表的詞：
+- 人名、公司、組織、產品、App、專案、品牌、地名
+- 專業術語、技術名詞、縮寫、英文詞，用正確的寫法和大小寫（GitHub、Kubernetes、PR）
+- 最重要的：辨識結果寫錯、整理時才改正的詞（同一個詞在 raw 和 final 寫法不同）
+
+不要放：
+- 一般常用詞、動詞、形容詞、整句話、數字、日期、時間
+- 每個人都會寫對的普通英文單字（例如 OK、meeting）
+- 只在 raw 出現的錯誤寫法
+
+只輸出一個 JSON 陣列，用 final 裡的寫法，例如 ["GitHub", "王小明", "Kong"]，最多 20 個。沒有值得記的就輸出 []。不要輸出其他任何文字。
+"""
+
 _GLOSSARY_HEADER = "\n# 使用者的常用詞\n遇到發音相近的字詞時，優先用這些寫法：\n"
 
 GLOSSARY_TEMPLATE = """\
@@ -77,19 +94,32 @@ GLOSSARY_TEMPLATE = """\
 """
 
 
+def learned_file(glossary: Path) -> Path:
+    """Words Kong learned by itself (learn.py), kept apart from the ones the user typed."""
+    return glossary.with_name("glossary-learned.txt")
+
+
 def load_glossary(path: Path) -> list[str]:
+    """The user's own words first, then the learned ones."""
+    seen: dict[str, None] = {}
+    for f in (path, learned_file(path)):
+        try:
+            text = f.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            term = line.strip()
+            if term and not term.startswith("#"):
+                seen.setdefault(term[:60], None)
+    return list(seen)[:200]
+
+
+def load_user_glossary(path: Path) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8-sig")
-    except FileNotFoundError:
-        return []
     except OSError:
         return []
-    seen: dict[str, None] = {}
-    for line in text.splitlines():
-        term = line.strip()
-        if term and not term.startswith("#"):
-            seen.setdefault(term[:60], None)
-    return list(seen)[:200]
+    return [t.strip()[:60] for t in text.splitlines() if t.strip() and not t.strip().startswith("#")]
 
 
 def ensure_glossary_file(path: Path) -> None:
@@ -115,3 +145,13 @@ def meeting_prompt(glossary: list[str]) -> str:
 
 def meeting_message(transcript: str) -> str:
     return f"<transcript>\n{transcript.strip()}\n</transcript>"
+
+
+def learn_message(samples: list[tuple[str, str]]) -> str:
+    """samples: (raw, final); raw may be empty (a meeting line)."""
+    out = ["<samples>"]
+    for raw, final in samples:
+        item = f"<raw>{raw.strip()}</raw>" if raw.strip() and raw.strip() != final.strip() else ""
+        out.append(f"<item>{item}<final>{final.strip()}</final></item>")
+    out.append("</samples>")
+    return "\n".join(out)

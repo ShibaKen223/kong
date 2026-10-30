@@ -60,6 +60,10 @@ def glossary_file() -> Path:
     return data_dir() / "glossary.txt"
 
 
+def learn_file() -> Path:
+    return data_dir() / "learn.json"
+
+
 def history_file() -> Path:
     return data_dir() / "history.json"
 
