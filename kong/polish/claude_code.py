@@ -40,8 +40,12 @@ _IS_WIN = sys.platform == "win32"
 # A dictation normally starts streaming within ~2 s. Past this, paste the transcript as is
 # instead of keeping the person waiting.
 FIRST_TOKEN_S = 8.0
-# Replace the waiting process when it has been idle this long (seen: 2 s after 6 min, 20 s after 14).
+# A process started just now first has to load (seen: 8 s and still nothing after hours idle).
+COLD_FIRST_TOKEN_S = 20.0
+# A waiting process left idle this long is not trusted (seen: 2 s after 6 min, 20 s after 14).
 WARM_MAX_AGE_S = 300.0
+# So the waiting one is swapped for a new one this often, and a dictation never finds it stale.
+REFRESH_S = 240.0
 
 
 class PolishError(Exception):
@@ -393,11 +397,15 @@ class ClaudeCodePolisher:
             self._flags = [f for f in self._flags if f[0] != name]
             return len(self._flags) != before
 
-    def _prewarm(self) -> None:
+    def _prewarm(self, replace: _Worker | None = None) -> None:
+        """`replace`: swap that waiting process for a new one once the new one is up."""
         with self._lock:
             if self._warming or self._closed or self._argv is None:
                 return
-            if self._warm is not None and self._warm.alive():
+            if replace is not None:
+                if self._warm is not replace:
+                    return  # already used or replaced
+            elif self._warm is not None and self._warm.alive():
                 return
             self._warming = True
         try:
@@ -414,9 +422,12 @@ class ClaudeCodePolisher:
                 except subprocess.TimeoutExpired:
                     with self._lock:
                         if self._closed:
-                            w.kill()
+                            old = w
                         else:
-                            self._warm = w
+                            old, self._warm = self._warm, w
+                            self._schedule_refresh(w)
+                    if old is not None:
+                        old.kill()
                     return
                 # It exited on its own: usually an older CLI refusing a flag. Drop it and retry.
                 err = w.stderr_text()
@@ -431,6 +442,11 @@ class ClaudeCodePolisher:
         finally:
             with self._lock:
                 self._warming = False
+
+    def _schedule_refresh(self, w: _Worker) -> None:
+        t = threading.Timer(REFRESH_S, self._prewarm, kwargs={"replace": w})
+        t.daemon = True
+        t.start()
 
     def _prewarm_async(self) -> None:
         if self.cfg.claude_prewarm and not self._closed:
@@ -454,17 +470,20 @@ class ClaudeCodePolisher:
                 w.kill()
             w = self._spawn()
         t0 = time.monotonic()
+        how = "cold" if cold else "warm"
         try:
-            out = w.ask(prompt.user_message(transcript), self.cfg.claude_timeout_s, on_text, FIRST_TOKEN_S)
+            first = COLD_FIRST_TOKEN_S if cold else FIRST_TOKEN_S
+            out = w.ask(prompt.user_message(transcript), self.cfg.claude_timeout_s, on_text, first)
+            log.info("claude answered in %.2fs (%s)", time.monotonic() - t0, how)
             with self._lock:
                 self.status = f"就緒（{self.cfg.claude_model or '預設模型'}）"
             return out
         except PolishError as e:
+            log.info("claude gave up after %.2fs (%s): %s", time.monotonic() - t0, how, e)
             with self._lock:
                 self.status = str(e)
             raise
         finally:
-            log.info("claude answered in %.2fs (%s)", time.monotonic() - t0, "cold" if cold else "warm")
             w.kill()
             self._prewarm_async()
 

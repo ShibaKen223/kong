@@ -80,6 +80,28 @@ def test_slow_start_gives_up_early(monkeypatch):
     p.shutdown()
 
 
+def test_cold_start_gets_longer_to_begin(monkeypatch):
+    monkeypatch.setattr(cc, "FIRST_TOKEN_S", 0.5)
+    monkeypatch.setattr(cc, "COLD_FIRST_TOKEN_S", 2.0)
+    p = polisher(monkeypatch, "hang", timeout=10, claude_prewarm=False)
+    t = time.monotonic()
+    with pytest.raises(cc.PolishError, match="2 秒"):
+        p.polish("你好")
+    assert 1.8 < time.monotonic() - t < 4
+    p.shutdown()
+
+
+def test_waiting_process_is_refreshed(monkeypatch):
+    monkeypatch.setattr(cc, "REFRESH_S", 0.5)
+    p = polisher(monkeypatch)
+    first = p._warm
+    time.sleep(4.5)  # the refresh waits 3 s to see the new one stay up
+    assert p._warm is not None and p._warm is not first and p._warm.alive()
+    assert first.proc.poll() is not None
+    assert p.polish("你好") == "整理：你好"
+    p.shutdown()
+
+
 def test_stale_warm_process_is_replaced(monkeypatch):
     p = polisher(monkeypatch)
     stale = p._warm
