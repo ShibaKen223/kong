@@ -5,6 +5,7 @@
 Each state is drawn over a light and a dark backdrop, the way it sits over real apps.
 """
 
+import math
 import sys
 from pathlib import Path
 
@@ -17,7 +18,11 @@ out.mkdir(parents=True, exist_ok=True)
 p = Painter(float(sys.argv[2]) if len(sys.argv) > 2 else 1.5)
 
 LIVE = "那那個我們明天開會的時候要討論一下這個 implementation"
-VOICE = [0.1, 0.3, 0.6, 0.85, 0.5, 0.7, 0.95, 0.4, 0.2, 0.55, 0.8]
+# Six seconds of speech-like levels: syllables riding on slower phrases, with short pauses.
+VOICE = [
+    max(0.0, abs(math.sin(i * 0.9)) * (0.35 + 0.65 * abs(math.sin(i * 0.11))) - (0.3 if i % 37 > 31 else 0))
+    for i in range(96)
+]
 states = {
     "1-listening-empty": View("listen", "聽寫中", "", "講完按一下「右 Ctrl」・Esc 取消", "0:01", 0.05, 0.3),
     "2-listening": View("listen", "聽寫中", LIVE, "講完按一下「右 Ctrl」・Esc 取消", "0:04", 0.7, 2.1, VOICE),

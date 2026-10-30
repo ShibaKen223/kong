@@ -6,18 +6,19 @@ fully transparent, because showing a window again can activate it and pull the c
 the app the user is typing in.
 
 The whole card is drawn with Pillow (`Painter`), so it can have a soft shadow, rounded
-corners and an animated graphic. On Windows the image becomes the window itself through
+corners and a glow. On Windows the image becomes the window itself through
 UpdateLayeredWindow (per-pixel alpha); elsewhere it is shown in a plain Tk label, for previews.
 
-Look: a cassette label. Warm grey paper, heavy black type, hairline rules, and a block of
-signal orange and black on the right whose geometry shows the state: a dot meter of your
-voice, sliding stripes while it works, arcs when it is done.
+Look: a dark, quiet card. Kong's mark glows orange on the left and swells with your voice,
+the words are large and white, and one thin line under them carries the live state: a fine
+waveform while listening, a sweep while working, solid when done.
 """
 
 from __future__ import annotations
 
 import collections
 import logging
+import math
 import os
 import queue
 import re
@@ -28,20 +29,25 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import theme
+from .icon import kong_icon
 from .theme import rgb
 
 log = logging.getLogger(__name__)
 
 IS_WIN = sys.platform == "win32"
 
-PAPER_TOP = (219, 219, 215)
-PAPER_BOTTOM = (205, 205, 201)
+CARD_TOP = (44, 44, 48)
+CARD_BOTTOM = (28, 28, 31)
+CARD_ALPHA = 244  # a touch see-through, like frosted glass without the blur
+FG = (242, 242, 247)
+FG_STATUS = (206, 206, 212)
+SUB = (146, 146, 154)
+FAINT = (112, 112, 120)
+ERROR_TEXT = (255, 140, 128)
 INK = rgb(theme.INK)
-INK_SOFT = rgb(theme.INK_SOFT)
-INK_FAINT = rgb(theme.INK_FAINT)
 ORANGE = rgb(theme.ORANGE)
 DIM_DOT = (52, 52, 52)
 _WINDIR = os.environ.get("WINDIR", r"C:\Windows")
@@ -68,26 +74,30 @@ MAX_LINES = 3
 PLACEHOLDER = "請開始說話…"
 
 # Layout, in pixels at 96 dpi.
-WIDTH = 660  # the card; the window adds MARGIN on every side for the shadow
-BLOCK_W = 150  # the graphic on the right
+WIDTH = 640  # the card; the window adds MARGIN on every side for the shadow
 MARGIN = 30
-RADIUS = 14
-PAD_X = 22
-PAD_TOP = 14
-META_H = 22
-LINE_H = 31
-TEXT_PX = 21
-SMALL_PX = 12
-FOOTER_H = 34
-CELL = 10  # dot meter grid
+RADIUS = 24
+MARK_X = 42  # centre of the glowing mark
+MARK = 30
+TEXT_X = 78
+PAD_R = 30
+PAD_TOP = 22
+LINE_H = 32
+TEXT_PX = 20
+SMALL_PX = 12.5
+FOOTER_H = 42
+WAVE_H = 9  # half-height of the tallest waveform tick
+CELL = 10  # dot meter grid (the main window's header graphic)
 BOTTOM_GAP = 24  # card to the bottom of the work area
-HISTORY = 24  # voice level samples kept for the dot meter
+HISTORY = 96  # voice level samples kept: the waveform shows the last few seconds
 
 FADE_IN_S = 0.14
 FADE_OUT_S = 0.18
 
 _TOKEN = re.compile(r"[A-Za-z0-9_\-.'/:@#%&+]+|\s+|.", re.S)
 _NO_LINE_START = set("，。、．・：；！？）」』】〉》…,.!?:;)]}%")
+# Which version of the mark sits in the glow.
+_MARK_STATE = {"error": "error", "work": "busy"}
 
 
 @dataclass
@@ -102,7 +112,7 @@ class View:
     history: list[float] = field(default_factory=list)  # recent levels, oldest first
 
 
-def _font(kind: str, px: int):
+def _font(kind: str, px: float):
     for path in FONT_FILES[kind]:
         try:
             return ImageFont.truetype(path, px)
@@ -132,11 +142,12 @@ class Painter:
 
     def __init__(self, scale: float = 1.0) -> None:
         self.s = scale
-        self.f_text = _font("bold", self.px(TEXT_PX))
+        self.f_text = _font("regular", self.px(TEXT_PX))
         self.f_small = _font("regular", self.px(SMALL_PX))
-        self.f_meta = _font("bold", self.px(SMALL_PX))
-        self.f_mark = _font("heavy", self.px(14))
-        self._base_cache: dict[tuple[int, int], tuple[Image.Image, Image.Image]] = {}
+        self.f_mark = _font("heavy", self.px(12))
+        self._base_cache: dict[tuple[int, int], Image.Image] = {}
+        self._glow = self._make_glow()
+        self._marks = {k: kong_icon(k, self.px(MARK)) for k in ("idle", "busy", "error")}
 
     def px(self, v: float) -> int:
         return int(round(v * self.s))
@@ -191,8 +202,8 @@ class Painter:
 
     # --- the card ------------------------------------------------------------------------
 
-    def _base(self, w: int, h: int) -> tuple[Image.Image, Image.Image]:
-        """(shadow + paper card, card shape mask) for a card of w×h; cached per size."""
+    def _base(self, w: int, h: int) -> Image.Image:
+        """Shadow + dark card for a card of w×h; cached per size."""
         key = (w, h)
         if key in self._base_cache:
             return self._base_cache[key]
@@ -201,41 +212,54 @@ class Painter:
 
         shadow = Image.new("L", full, 0)
         ImageDraw.Draw(shadow).rounded_rectangle(
-            (m + self.px(6), m + self.px(10), m + w - self.px(6), m + h + self.px(6)), radius=r, fill=170
+            (m + self.px(4), m + self.px(10), m + w - self.px(4), m + h + self.px(6)), radius=r, fill=190
         )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(self.px(14)))
         img = Image.new("RGBA", full, (0, 0, 0, 0))
-        img.putalpha(shadow)
-
-        ss = 3  # supersample the rounded corners for smooth edges
-        outer = Image.new("L", (w * ss, h * ss), 0)
-        ImageDraw.Draw(outer).rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), radius=r * ss, fill=255)
-        inner = Image.new("L", (w * ss, h * ss), 0)
-        bw = max(1, round(self.s)) * ss
-        ImageDraw.Draw(inner).rounded_rectangle(
-            (bw, bw, w * ss - 1 - bw, h * ss - 1 - bw), radius=r * ss - bw, fill=255
-        )
-        outer = outer.resize((w, h), Image.LANCZOS)
-        inner = inner.resize((w, h), Image.LANCZOS)
+        img.putalpha(shadow.filter(ImageFilter.GaussianBlur(self.px(16))))
 
         rows = np.linspace(0.0, 1.0, h)[:, None, None]
-        grad = np.array(PAPER_TOP) * (1 - rows) + np.array(PAPER_BOTTOM) * rows
-        # A little paper grain, fixed per size so it does not crawl between frames.
-        grain = np.random.default_rng(7).normal(0.0, 1.6, (h, w, 1))
-        paper = (np.repeat(grad, w, axis=1) + grain).clip(0, 255).astype(np.uint8)
-        card = Image.fromarray(paper, "RGB").convert("RGBA")
-        card.putalpha(outer)
-        rim = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        rim.putalpha(ImageChops.subtract(outer, inner).point(lambda a: a * 40 // 255))
+        grad = (np.array(CARD_TOP) * (1 - rows) + np.array(CARD_BOTTOM) * rows).astype(np.uint8)
+        card = Image.fromarray(np.repeat(grad, w, axis=1), "RGB").convert("RGBA")
+        ss = 3  # supersample the corners for smooth edges
+        shape = Image.new("L", (w * ss, h * ss), 0)
+        ImageDraw.Draw(shape).rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), radius=r * ss, fill=CARD_ALPHA)
+        card.putalpha(shape.resize((w, h), Image.LANCZOS))
+        # A hairline rim, brighter along the top like light catching the edge.
+        rim = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
+        ImageDraw.Draw(rim).rounded_rectangle(
+            (0, 0, w * ss - 1, h * ss - 1), radius=r * ss, outline=(255, 255, 255, 255), width=ss * max(1, round(self.s))
+        )
+        rim = rim.resize((w, h), Image.LANCZOS)
+        fade = (np.linspace(34, 12, h)[:, None] * np.ones((1, w))).astype(np.float32)
+        a = (np.asarray(rim.getchannel("A"), np.float32) * fade / 255).astype(np.uint8)
+        rim.putalpha(Image.fromarray(a, "L"))
         card.alpha_composite(rim)
         img.alpha_composite(card, (m, m))
-        self._base_cache[key] = (img, outer)
-        return img, outer
+        self._base_cache[key] = img
+        return img
 
-    # --- the block -----------------------------------------------------------------------
+    def _make_glow(self) -> Image.Image:
+        g = self.px(96)
+        mask = Image.new("L", (g, g), 0)
+        r = self.px(16)
+        ImageDraw.Draw(mask).ellipse((g / 2 - r, g / 2 - r, g / 2 + r, g / 2 + r), fill=200)
+        glow = Image.new("RGBA", (g, g), ORANGE + (0,))
+        glow.putalpha(mask.filter(ImageFilter.GaussianBlur(self.px(14))))
+        return glow
+
+    def _bar(self, width: int, height: int, color, alpha: float) -> Image.Image:
+        """A bar that fades out at both ends."""
+        width, height = max(1, width), max(1, height)
+        ax = np.sin(np.pi * np.linspace(0.0, 1.0, width)) ** 0.5
+        a = (np.ones((height, 1)) * ax[None, :] * 255 * alpha).clip(0, 255).astype(np.uint8)
+        bar = Image.new("RGBA", (width, height), color + (0,))
+        bar.putalpha(Image.fromarray(a, "L"))
+        return bar
+
+    # --- the main window's header graphic -------------------------------------------------
 
     def block(self, v: View, w: int, h: int) -> Image.Image:
-        """The graphic on the right edge, drawn 3× and scaled down for clean edges."""
+        """A cassette-label tile whose geometry shows the state, drawn 3× and scaled down."""
         ss = 3
         W, H = w * ss, h * ss
         u = self.s * ss  # one 96-dpi pixel in this drawing
@@ -305,91 +329,107 @@ class Painter:
                     r = rmax * 0.32
                     d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=DIM_DOT)
 
-    def _bar(self, width: int, height: int, color, alpha: float) -> Image.Image:
-        """A bar that fades out at both ends."""
-        width, height = max(1, width), max(1, height)
-        ax = np.sin(np.pi * np.linspace(0.0, 1.0, width)) ** 0.5
-        a = (np.ones((height, 1)) * ax[None, :] * 255 * alpha).clip(0, 255).astype(np.uint8)
-        bar = Image.new("RGBA", (width, height), color + (0,))
-        bar.putalpha(Image.fromarray(a, "L"))
-        return bar
-
     # --- one frame -----------------------------------------------------------------------
 
     def render(self, v: View) -> Image.Image:
         px = self.px
         w, m = px(WIDTH), px(MARGIN)
-        bw = px(BLOCK_W)
-        col_x0, col_x1 = px(PAD_X), w - bw - px(PAD_X)
-        text_w = col_x1 - col_x0
+        tx, rx = px(TEXT_X), w - px(PAD_R)
 
-        main, fg = v.text, INK
+        main, fg = v.text, (ERROR_TEXT if v.kind == "error" else FG)
         status = v.title
         if not main:
             if v.kind == "listen":
-                main, fg = PLACEHOLDER, INK_FAINT
+                main, fg = PLACEHOLDER, FAINT
             else:
                 main, status = v.title, ""
         if len(main) > MAX_CHARS:
             main = "…" + main[-MAX_CHARS:]
-        lines = self.tail_lines(main, text_w)
+        lines = self.tail_lines(main, rx - tx)
 
-        text_y = px(PAD_TOP) + px(META_H) + px(4)
-        rule_y = text_y + len(lines) * px(LINE_H) + px(10)
-        h = rule_y + px(FOOTER_H if v.hint else 18)
+        lh = px(LINE_H)
+        line_y = px(PAD_TOP) + len(lines) * lh + px(12)
+        div_y = line_y + px(WAVE_H) + px(10)
+        h = div_y + px(FOOTER_H)
 
-        base, shape = self._base(w, h)
-        img = base.copy()
+        img = self._base(w, h).copy()
         d = ImageDraw.Draw(img)
         x0, y0 = m, m
 
-        # The block, clipped to the card's rounded right corners.
-        block = self.block(v, bw, h)
-        block.putalpha(ImageChops.multiply(block.getchannel("A"), shape.crop((w - bw, 0, w, h))))
-        img.alpha_composite(block, (x0 + w - bw, y0))
-
-        # Meta row: what is happening on the left, the wordmark on the right.
-        my = y0 + px(PAD_TOP) + px(META_H) // 2
-        mark = "KONG"
-        mw = int(self.f_mark.getlength(mark))
-        d.text((x0 + col_x1 - mw, my), mark, font=self.f_mark, fill=INK, anchor="lm")
-        if status:
-            sq = px(7)
-            sx = x0 + col_x0
-            d.rectangle((sx, my - sq // 2, sx + sq, my - sq // 2 + sq), fill=ORANGE if v.kind != "ok" else INK)
-            label = f"[ {status} ]" + (f"  {v.clock}" if v.clock else "")
-            label = self.ellipsize(label, self.f_meta, col_x1 - col_x0 - mw - px(30))
-            d.text((sx + sq + px(8), my), label, font=self.f_meta, fill=INK, anchor="lm")
-
-        tx = x0 + col_x0
-        for i, line in enumerate(lines):
-            d.text((tx, y0 + text_y + i * px(LINE_H) + px(LINE_H) // 2), line, font=self.f_text, fill=fg, anchor="lm")
-
-        # A hairline rule; orange runs along it with your voice or the work.
-        rx0, rx1, ry = x0 + col_x0, x0 + col_x1, y0 + rule_y
-        d.line((rx0, ry, rx1, ry), fill=INK + (210,), width=max(1, round(self.s)))
-        rw, th = rx1 - rx0, px(3)
-        seg = None
+        # The mark in its glow: swells with your voice, breathes while working.
         if v.kind == "listen":
-            sw = int(rw * (0.03 + 0.97 * v.level))
-            seg = (rx0, sw)
+            k, bright = 0.75 + 0.75 * v.level, 0.5 + 0.5 * v.level
         elif v.kind == "work":
-            sw = int(rw * 0.28)
-            p = (v.t / 1.4) % 1.0
-            seg = (rx0 - sw + int(p * (rw + sw)), sw)
-        elif v.kind in ("ok", "warn", "error"):
-            seg = (rx0, int(rw * _ease(v.t / 0.45)))
-        if seg and seg[1] > 0:
-            sx, sw = seg
-            layer = Image.new("RGBA", (rw, th), (0, 0, 0, 0))
-            layer.paste(Image.new("RGBA", (sw, th), ORANGE + (255,)) if v.kind != "work" else self._bar(sw, th, ORANGE, 1.0),
-                        (sx - rx0, 0))
-            img.alpha_composite(layer, (rx0, ry - th // 2))
+            wave = 0.5 + 0.5 * math.sin(v.t * 2 * math.pi / 1.3)
+            k, bright = 0.9 + 0.2 * wave, 0.55 + 0.35 * wave
+        elif v.kind == "error":
+            k, bright = 0.9, 0.35
+        else:
+            k, bright = 1.0, 0.7
+        gs = max(2, int(self._glow.width * k))
+        glow = self._glow.resize((gs, gs), Image.BILINEAR)
+        glow.putalpha(glow.getchannel("A").point(lambda a: int(a * bright)))
+        cx, cy = x0 + px(MARK_X), y0 + px(PAD_TOP) + lh // 2
+        img.alpha_composite(glow, (cx - gs // 2, cy - gs // 2))
+        mark = self._marks[_MARK_STATE.get(v.kind, "idle")]
+        img.alpha_composite(mark, (cx - mark.width // 2, cy - mark.height // 2))
 
+        for i, line in enumerate(lines):
+            d.text((x0 + tx, y0 + px(PAD_TOP) + i * lh + lh // 2), line, font=self.f_text, fill=fg, anchor="lm")
+
+        # The live line.
+        lx0, lx1, ly = x0 + tx, x0 + rx, y0 + line_y
+        thin = max(1, round(self.s))
+        d.line((lx0, ly, lx1, ly), fill=(255, 255, 255, 20), width=thin)
+        if v.kind == "listen":
+            # A fine waveform of the last few seconds, newest on the right, older ticks fainter.
+            hist = (list(v.history) + [v.level])[-HISTORY:]
+            step = (lx1 - lx0) / (HISTORY - 1)
+            tick = max(1, round(self.s * 1.4))
+            for i, lv in enumerate(hist):
+                x = lx1 - (len(hist) - 1 - i) * step
+                hh = max(thin, px(WAVE_H) * lv)
+                age = (len(hist) - 1 - i) / HISTORY
+                d.line((x, ly - hh, x, ly + hh), fill=ORANGE + (int(255 * (1 - 0.6 * age)),), width=tick)
+        elif v.kind == "work":
+            sw = int((lx1 - lx0) * 0.3)
+            p = (v.t / 1.4) % 1.0
+            sx = lx0 - sw + int(p * (lx1 - lx0 + sw))
+            th = px(2)
+            layer = Image.new("RGBA", (lx1 - lx0, th), (0, 0, 0, 0))
+            layer.paste(self._bar(sw, th, ORANGE, 1.0), (sx - lx0, 0))
+            img.alpha_composite(layer, (lx0, ly - th // 2))
+        elif v.kind in ("ok", "warn", "error"):
+            # Draws itself across, left to right.
+            end = lx0 + int((lx1 - lx0) * _ease(v.t / 0.45))
+            if end > lx0:
+                d.line((lx0, ly, end, ly), fill=ERROR_TEXT if v.kind == "error" else ORANGE, width=px(2))
+
+        dy = y0 + div_y
+        d.line((x0 + px(22), dy, x0 + w - px(22), dy), fill=(255, 255, 255, 16), width=thin)
+
+        # Footer: status and hint on the left, the wordmark on the right.
+        fy = dy + px(FOOTER_H) // 2
+        mk = "KONG"
+        mw = int(self.f_mark.getlength(mk))
+        right = x0 + w - px(24)
+        d.text((right - mw, fy), mk, font=self.f_mark, fill=FAINT, anchor="lm")
+        room = right - mw - px(20)
+        fx = x0 + px(24)
+        if status:
+            label = status + (f" {v.clock}" if v.clock else "")
+            label = self.ellipsize(label, self.f_small, room - fx)
+            if v.kind in ("listen", "warn", "error"):
+                dot = px(3)
+                d.ellipse((fx, fy - dot, fx + 2 * dot, fy + dot), fill=ERROR_TEXT if v.kind == "error" else ORANGE)
+                fx += 2 * dot + px(8)
+            d.text((fx, fy), label, font=self.f_small, fill=FG_STATUS, anchor="lm")
+            fx += int(self.f_small.getlength(label))
+            if v.hint:
+                d.text((fx, fy), "・", font=self.f_small, fill=FAINT, anchor="lm")
+                fx += int(self.f_small.getlength("・"))
         if v.hint:
-            fy = ry + px(FOOTER_H) // 2
-            hint = self.ellipsize(v.hint, self.f_small, rw)
-            d.text((rx0, fy), hint, font=self.f_small, fill=INK_SOFT, anchor="lm")
+            d.text((fx, fy), self.ellipsize(v.hint, self.f_small, room - fx), font=self.f_small, fill=SUB, anchor="lm")
         return img
 
 
