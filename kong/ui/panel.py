@@ -74,18 +74,18 @@ MAX_LINES = 3
 PLACEHOLDER = "請開始說話…"
 
 # Layout, in pixels at 96 dpi.
-WIDTH = 700  # the card; the window adds MARGIN on every side for the shadow
+WIDTH = 640  # the card; the window adds MARGIN on every side for the shadow
 MARGIN = 30
-RADIUS = 24
-MARK_X = 46  # centre of the glowing mark
-MARK = 34
-TEXT_X = 88
-PAD_R = 30
-PAD_TOP = 24
-LINE_H = 36
-TEXT_PX = 23
-SMALL_PX = 14.5
-FOOTER_H = 48
+RADIUS = 20
+MARK_X = 40  # centre of the glowing mark
+MARK = 28
+TEXT_X = 74
+PAD_R = 26
+PAD_TOP = 18
+LINE_H = 29
+TEXT_PX = 18
+SMALL_PX = 13
+FOOTER_H = 40
 WAVE_H = 9  # half-height of the tallest waveform tick
 CELL = 10  # dot meter grid (the main window's header graphic)
 BOTTOM_GAP = 24  # card to the bottom of the work area
@@ -380,7 +380,11 @@ class Painter:
         # The live line.
         lx0, lx1, ly = x0 + tx, x0 + rx, y0 + line_y
         thin = max(1, round(self.s))
-        d.line((lx0, ly, lx1, ly), fill=(255, 255, 255, 20), width=thin)
+        # Translucent strokes go on their own layer: drawn straight onto the card they would
+        # replace its pixels and let the desktop show through.
+        ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        do = ImageDraw.Draw(ov)
+        do.line((lx0, ly, lx1, ly), fill=(255, 255, 255, 20), width=thin)
         if v.kind == "listen":
             # A fine waveform of the last few seconds, newest on the right, older ticks fainter.
             hist = (list(v.history) + [v.level])[-HISTORY:]
@@ -390,7 +394,7 @@ class Painter:
                 x = lx1 - (len(hist) - 1 - i) * step
                 hh = max(thin, px(WAVE_H) * lv)
                 age = (len(hist) - 1 - i) / HISTORY
-                d.line((x, ly - hh, x, ly + hh), fill=ORANGE + (int(255 * (1 - 0.6 * age)),), width=tick)
+                do.line((x, ly - hh, x, ly + hh), fill=ORANGE + (int(255 * (1 - 0.6 * age)),), width=tick)
         elif v.kind == "work":
             sw = int((lx1 - lx0) * 0.3)
             p = (v.t / 1.4) % 1.0
@@ -406,7 +410,8 @@ class Painter:
                 d.line((lx0, ly, end, ly), fill=ERROR_TEXT if v.kind == "error" else ORANGE, width=px(2))
 
         dy = y0 + div_y
-        d.line((x0 + px(22), dy, x0 + w - px(22), dy), fill=(255, 255, 255, 16), width=thin)
+        do.line((x0 + px(22), dy, x0 + w - px(22), dy), fill=(255, 255, 255, 16), width=thin)
+        img.alpha_composite(ov)
 
         # Footer: status and hint on the left, the wordmark on the right.
         fy = dy + px(FOOTER_H) // 2
