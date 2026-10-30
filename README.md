@@ -1,5 +1,7 @@
 # Kong 講
 
+![Kong 講](docs/key-visual.webp)
+
 **Windows 上的繁體中文語音輸入。在任何文字框連按兩下右 Ctrl、講一句話，整理好的書面繁中直接貼進游標。**
 
 受 Mac 上的 [Talky](https://github.com/intentionltd888/talky) 啟發而做的獨立專案，跟 Talky 或 INTENTION® 沒有關係，也沒有用到它的程式碼。
