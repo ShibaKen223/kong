@@ -24,6 +24,14 @@ INK_FAINT = "#86867f"
 ORANGE = "#ff4a26"
 WHITE = "#ffffff"
 
+# Type sizes in points. Body text is 12 pt: comfortable at arm's length on a laptop.
+BODY = 12
+SMALL = 11  # hints and captions; never smaller
+TEXT = 13  # text boxes: what you said
+TITLE = 24
+MARK = 26
+NUM = 14
+
 
 def rgb(color: str) -> tuple[int, int, int]:
     return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
@@ -41,20 +49,20 @@ def apply(root: tk.Misc) -> ttk.Style:
     style.theme_use("clam")
     for name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont"):
         try:
-            tkfont.nametofont(name, root=root).configure(family=FONT, size=10)
+            tkfont.nametofont(name, root=root).configure(family=FONT, size=BODY)
         except tk.TclError:
             pass
 
     style.configure(
         ".", background=PAPER, foreground=INK, bordercolor=INK, darkcolor=PAPER, lightcolor=PAPER,
         troughcolor=PAPER_LO, focuscolor=PAPER, selectbackground=ORANGE, selectforeground=INK,
-        fieldbackground=PAPER_HI, insertcolor=INK, font=(FONT, 10),
+        fieldbackground=PAPER_HI, insertcolor=INK, font=(FONT, BODY),
     )
     style.map(".", foreground=[("disabled", INK_FAINT)])
 
     # Buttons: ink outline on paper; solid ink when you point at them. Accent is the orange block.
-    style.configure("TButton", padding=(14, 6), relief="solid", borderwidth=1, background=PAPER, foreground=INK,
-                    font=(FONT, 10, "bold"))
+    style.configure("TButton", padding=(16, 8), relief="solid", borderwidth=1, background=PAPER, foreground=INK,
+                    font=(FONT, BODY, "bold"))
     style.map(
         "TButton",
         background=[("disabled", PAPER), ("pressed", INK_SOFT), ("active", INK)],
@@ -76,8 +84,8 @@ def apply(root: tk.Misc) -> ttk.Style:
 
     # Tabs: plain words; the open one is a black block.
     style.configure("TNotebook", background=PAPER, borderwidth=0, tabmargins=(0, 0, 0, 0))
-    style.configure("TNotebook.Tab", background=PAPER, foreground=INK_SOFT, padding=(18, 8), borderwidth=0,
-                    bordercolor=PAPER, lightcolor=PAPER, darkcolor=PAPER, font=(FONT, 10, "bold"))
+    style.configure("TNotebook.Tab", background=PAPER, foreground=INK_SOFT, padding=(20, 10), borderwidth=0,
+                    bordercolor=PAPER, lightcolor=PAPER, darkcolor=PAPER, font=(FONT, BODY, "bold"))
     style.map(
         "TNotebook.Tab",
         background=[("selected", INK), ("active", PAPER_LO)],
@@ -85,12 +93,12 @@ def apply(root: tk.Misc) -> ttk.Style:
         lightcolor=[("selected", INK)],
         bordercolor=[("selected", INK)],
         expand=[("selected", (0, 0, 0, 0))],
-        padding=[("selected", (18, 8))],  # clam shrinks the open tab; keep all tabs level
+        padding=[("selected", (20, 10))],  # clam shrinks the open tab; keep all tabs level
     )
 
     style.configure("TLabelframe", background=PAPER, bordercolor=INK, relief="solid", borderwidth=1,
                     lightcolor=PAPER, darkcolor=PAPER)
-    style.configure("TLabelframe.Label", background=PAPER, foreground=INK, font=(FONT, 10, "bold"))
+    style.configure("TLabelframe.Label", background=PAPER, foreground=INK, font=(FONT, BODY, "bold"))
 
     for kind in ("TRadiobutton", "TCheckbutton"):
         style.configure(kind, background=PAPER, foreground=INK, indicatorbackground=PAPER_HI,
@@ -116,25 +124,31 @@ def apply(root: tk.Misc) -> ttk.Style:
     root.option_add("*TCombobox*Listbox.foreground", INK)
     root.option_add("*TCombobox*Listbox.selectBackground", ORANGE)
     root.option_add("*TCombobox*Listbox.selectForeground", INK)
-    root.option_add("*TCombobox*Listbox.font", (FONT, 10))
+    root.option_add("*TCombobox*Listbox.font", (FONT, BODY))
 
-    style.configure("Treeview", background=PAPER_HI, fieldbackground=PAPER_HI, foreground=INK, rowheight=30,
-                    bordercolor=INK, lightcolor=PAPER_HI, darkcolor=PAPER_HI, font=(FONT, 10))
+    style.configure("Treeview", background=PAPER_HI, fieldbackground=PAPER_HI, foreground=INK, rowheight=36,
+                    bordercolor=INK, lightcolor=PAPER_HI, darkcolor=PAPER_HI, font=(FONT, BODY))
     style.map("Treeview", background=[("selected", ORANGE)], foreground=[("selected", INK)])
     style.configure("Treeview.Heading", background=INK, foreground=WHITE, relief="flat", padding=(8, 6),
-                    bordercolor=INK, lightcolor=INK, darkcolor=INK, font=(FONT, 9, "bold"))
+                    bordercolor=INK, lightcolor=INK, darkcolor=INK, font=(FONT, SMALL, "bold"))
     style.map("Treeview.Heading", background=[("active", INK_SOFT)])
 
     style.configure("TSeparator", background=INK)
     style.configure("Vertical.TScrollbar", background=PAPER, troughcolor=PAPER_HI, bordercolor=PAPER_HI,
                     arrowcolor=INK, lightcolor=PAPER, darkcolor=PAPER)
 
-    style.configure("Title.TLabel", font=(FONT, 20, "bold"))
-    style.configure("Sub.TLabel", font=(FONT, 10), foreground=INK_SOFT)
-    style.configure("Key.TLabel", font=(FONT, 10, "bold"))
-    style.configure("Hint.TLabel", font=(FONT, 9), foreground=INK_SOFT)
-    style.configure("Meta.TLabel", font=(FONT, 9, "bold"))
-    style.configure("Num.TLabel", font=(HEAVY, 11), foreground=ORANGE)
-    style.configure("Mark.TLabel", font=(HEAVY, 22), foreground=INK)
+    style.configure("Title.TLabel", font=(FONT, TITLE, "bold"))
+    style.configure("Sub.TLabel", font=(FONT, BODY), foreground=INK_SOFT)
+    style.configure("Key.TLabel", font=(FONT, BODY + 1, "bold"))
+    style.configure("Hint.TLabel", font=(FONT, SMALL), foreground=INK_SOFT)
+    style.configure("Meta.TLabel", font=(FONT, SMALL, "bold"))
+    style.configure("Num.TLabel", font=(HEAVY, NUM), foreground=ORANGE)
+    style.configure("Mark.TLabel", font=(HEAVY, MARK), foreground=INK)
+    # The quick-start guide: a big lead line, keycaps, and a green "it worked".
+    style.configure("Lead.TLabel", font=(FONT, BODY + 2), foreground=INK)
+    style.configure("Step.TLabel", font=(FONT, BODY + 1), foreground=INK)
+    style.configure("Cap.TLabel", font=(FONT, BODY, "bold"), background=INK, foreground=WHITE, padding=(10, 3))
+    style.configure("Good.TLabel", font=(FONT, BODY + 1, "bold"), foreground="#1d7a3a")
+    style.configure("Bad.TLabel", font=(FONT, BODY), foreground=ORANGE)
     style.configure("Ink.TFrame", background=INK)
     return style

@@ -74,18 +74,18 @@ MAX_LINES = 3
 PLACEHOLDER = "請開始說話…"
 
 # Layout, in pixels at 96 dpi.
-WIDTH = 640  # the card; the window adds MARGIN on every side for the shadow
+WIDTH = 700  # the card; the window adds MARGIN on every side for the shadow
 MARGIN = 30
 RADIUS = 24
-MARK_X = 42  # centre of the glowing mark
-MARK = 30
-TEXT_X = 78
+MARK_X = 46  # centre of the glowing mark
+MARK = 34
+TEXT_X = 88
 PAD_R = 30
-PAD_TOP = 22
-LINE_H = 32
-TEXT_PX = 20
-SMALL_PX = 12.5
-FOOTER_H = 42
+PAD_TOP = 24
+LINE_H = 36
+TEXT_PX = 23
+SMALL_PX = 14.5
+FOOTER_H = 48
 WAVE_H = 9  # half-height of the tallest waveform tick
 CELL = 10  # dot meter grid (the main window's header graphic)
 BOTTOM_GAP = 24  # card to the bottom of the work area
@@ -144,7 +144,7 @@ class Painter:
         self.s = scale
         self.f_text = _font("regular", self.px(TEXT_PX))
         self.f_small = _font("regular", self.px(SMALL_PX))
-        self.f_mark = _font("heavy", self.px(12))
+        self.f_mark = _font("heavy", self.px(13))
         self._base_cache: dict[tuple[int, int], Image.Image] = {}
         self._glow = self._make_glow()
         self._marks = {k: kong_icon(k, self.px(MARK)) for k in ("idle", "busy", "error")}
