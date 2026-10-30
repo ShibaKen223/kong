@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import threading
 import time
 from ctypes import wintypes
 
@@ -189,6 +190,164 @@ def set_clipboard_text(text: str) -> int:
     with Clipboard() as cb:
         cb.set_text(text)
     return GetClipboardSequenceNumber()
+
+
+# --- text offered on the clipboard, handed over only when an app pastes it -------------------
+
+WM_DESTROY = 0x0002
+WM_CLOSE = 0x0010
+WM_RENDERFORMAT = 0x0305
+WM_RENDERALLFORMATS = 0x0306
+WM_DESTROYCLIPBOARD = 0x0307
+HWND_MESSAGE = wintypes.HWND(-3 & (2 ** (8 * ctypes.sizeof(ctypes.c_void_p)) - 1))
+LRESULT = ctypes.c_ssize_t
+WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+
+
+class WNDCLASSW(ctypes.Structure):
+    _fields_ = [
+        ("style", wintypes.UINT), ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int), ("cbWndExtra", ctypes.c_int),
+        ("hInstance", wintypes.HINSTANCE), ("hIcon", wintypes.HICON), ("hCursor", wintypes.HANDLE),
+        ("hbrBackground", wintypes.HBRUSH), ("lpszMenuName", wintypes.LPCWSTR), ("lpszClassName", wintypes.LPCWSTR),
+    ]
+
+
+_RegisterClassW = _fn(user32, "RegisterClassW", wintypes.ATOM, ctypes.POINTER(WNDCLASSW))
+_DefWindowProcW = _fn(user32, "DefWindowProcW", LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+_GetMessageW = _fn(user32, "GetMessageW", wintypes.BOOL, ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT)
+_DispatchMessageW = _fn(user32, "DispatchMessageW", LRESULT, ctypes.POINTER(wintypes.MSG))
+_PostMessageW = _fn(user32, "PostMessageW", wintypes.BOOL, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+_PostQuitMessage = _fn(user32, "PostQuitMessage", None, ctypes.c_int)
+_GetClipboardOwner = _fn(user32, "GetClipboardOwner", wintypes.HWND)
+_RegisterClipboardFormatW = _fn(user32, "RegisterClipboardFormatW", wintypes.UINT, wintypes.LPCWSTR)
+_OFFER_CLASS = "KongClipboardOffer"
+_offer_class_proc = None  # the class's window procedure must outlive every window
+
+
+def _global_text(text: str):
+    data = text.replace("\r\n", "\n").replace("\n", "\r\n")
+    buf = ctypes.create_unicode_buffer(data)
+    h = _GlobalAlloc(GMEM_MOVEABLE, ctypes.sizeof(buf))
+    p = _GlobalLock(h) if h else None
+    if not p:
+        raise OSError("GlobalAlloc failed")
+    ctypes.memmove(p, buf, ctypes.sizeof(buf))
+    _GlobalUnlock(h)
+    return h
+
+
+def _global_bytes(data: bytes):
+    h = _GlobalAlloc(GMEM_MOVEABLE, max(1, len(data)))
+    p = _GlobalLock(h) if h else None
+    if not p:
+        raise OSError("GlobalAlloc failed")
+    ctypes.memmove(p, data, len(data))
+    _GlobalUnlock(h)
+    return h
+
+
+class ClipboardOffer:
+    """Put text on the clipboard as a promise (delayed rendering) instead of the text itself.
+
+    Windows asks the owner for the text (WM_RENDERFORMAT) at the moment an app actually reads
+    it, so `wait_read()` tells when a Ctrl+V has landed: only then is it safe to put back what
+    was on the clipboard before. A fixed delay is a guess, and an app that reads late would
+    paste the old content. The offer is also kept out of Windows' clipboard history.
+    """
+
+    _windows: dict[int, "ClipboardOffer"] = {}
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.hwnd = None
+        self.seq = 0
+        self.read = threading.Event()
+        self._ready = threading.Event()
+        self._error: Exception | None = None
+        threading.Thread(target=self._run, name="clipboard-offer", daemon=True).start()
+        if not self._ready.wait(3):
+            raise OSError("剪貼簿沒有回應")
+        if self._error is not None:
+            raise self._error
+
+    @staticmethod
+    def _proc(hwnd, msg, wparam, lparam):
+        me = ClipboardOffer._windows.get(hwnd)
+        if me is not None:
+            if msg == WM_RENDERFORMAT:
+                # The clipboard is already open by the reader: just hand the data over.
+                if wparam == CF_UNICODETEXT and _SetClipboardData(CF_UNICODETEXT, _global_text(me.text)):
+                    me.read.set()
+                return 0
+            if msg == WM_RENDERALLFORMATS:
+                # Going away while still the owner: leave the real text behind.
+                if _OpenClipboard(hwnd):
+                    try:
+                        if _GetClipboardOwner() == hwnd:
+                            _SetClipboardData(CF_UNICODETEXT, _global_text(me.text))
+                    finally:
+                        _CloseClipboard()
+                return 0
+            if msg == WM_CLOSE:
+                _DestroyWindow(hwnd)
+                return 0
+            if msg == WM_DESTROY:
+                ClipboardOffer._windows.pop(hwnd, None)
+                _PostQuitMessage(0)
+                return 0
+        return _DefWindowProcW(hwnd, msg, wparam, lparam)
+
+    def _run(self) -> None:
+        global _offer_class_proc
+        try:
+            if _offer_class_proc is None:
+                _offer_class_proc = WNDPROC(ClipboardOffer._proc)
+                wc = WNDCLASSW(lpfnWndProc=_offer_class_proc, lpszClassName=_OFFER_CLASS)
+                _RegisterClassW(ctypes.byref(wc))
+            hwnd = _CreateWindowExW(0, _OFFER_CLASS, None, 0, 0, 0, 0, 0, HWND_MESSAGE, None, None, None)
+            if not hwnd:
+                raise OSError("could not create the clipboard window")
+            self.hwnd = hwnd
+            ClipboardOffer._windows[hwnd] = self
+            for _ in range(25):
+                if _OpenClipboard(hwnd):
+                    break
+                time.sleep(0.02)
+            else:
+                _DestroyWindow(hwnd)
+                raise OSError("剪貼簿被其他程式占用")
+            try:
+                _EmptyClipboard()
+                _SetClipboardData(CF_UNICODETEXT, None)  # the promise
+                for name, data in (
+                    ("ExcludeClipboardContentFromMonitorProcessing", b"\0"),
+                    ("CanIncludeInClipboardHistory", b"\0\0\0\0"),
+                    ("CanUploadToCloudClipboard", b"\0\0\0\0"),
+                ):
+                    _SetClipboardData(_RegisterClipboardFormatW(name), _global_bytes(data))
+            finally:
+                _CloseClipboard()
+            self.seq = GetClipboardSequenceNumber()
+        except Exception as e:  # reported to the caller
+            self._error = e if isinstance(e, OSError) else OSError(str(e))
+            self._ready.set()
+            return
+        self._ready.set()
+        msg = wintypes.MSG()
+        while _GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            _DispatchMessageW(ctypes.byref(msg))
+
+    def wait_read(self, timeout: float) -> bool:
+        return self.read.wait(timeout)
+
+    def still_ours(self) -> bool:
+        """False once anyone else has put something on the clipboard."""
+        return bool(self.hwnd) and _GetClipboardOwner() == self.hwnd
+
+    def close(self) -> None:
+        """Stop owning the offer. Still the owner: the real text stays on the clipboard."""
+        if self.hwnd:
+            _PostMessageW(self.hwnd, WM_CLOSE, 0, 0)
 
 
 # --- synthetic keyboard input ------------------------------------------------------------

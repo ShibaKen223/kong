@@ -10,8 +10,12 @@ import time
 
 log = logging.getLogger(__name__)
 
-# How long apps get to read the clipboard after Ctrl+V before we put the old content back.
-# Electron apps read it asynchronously, so this cannot be very short.
+# Putting the old clipboard back waits until the app has actually read our text (see
+# win32.ClipboardOffer), then this long more so it can finish with it.
+AFTER_READ_S = 0.3
+# Nobody read it by then: the paste did not happen. The text stays, for a Ctrl+V by hand.
+READ_WAIT_S = 6.0
+# Without an offer (it could not be set up), the old guess: put it back after this long.
 RESTORE_DELAY_S = 1.2
 
 
@@ -60,6 +64,40 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
             win32.type_text(text)
             return Result.TYPED
 
+    def put_old_back() -> None:
+        try:
+            if saved:
+                win32.clipboard_restore(saved)
+            else:
+                win32.set_clipboard_text(old)
+        except OSError as e:
+            log.info("restoring the clipboard failed: %s", e)
+
+    if restore and ((kind == "text" and old is not None) or saved):
+        try:
+            offer = win32.ClipboardOffer(text)
+        except OSError as e:
+            log.info("clipboard offer failed (%s); using a fixed delay", e)
+            offer = None
+        if offer is not None:
+            time.sleep(0.03)
+            if not win32.send_ctrl_v():
+                offer.close()
+                return Result.CLIPBOARD
+
+            def after_paste():
+                if not offer.wait_read(READ_WAIT_S):
+                    log.info("nobody read the text within %.0f s: leaving it on the clipboard", READ_WAIT_S)
+                    offer.close()
+                    return
+                time.sleep(AFTER_READ_S)
+                if offer.still_ours():  # nobody copied something else meanwhile
+                    put_old_back()
+                offer.close()
+
+            threading.Thread(target=after_paste, name="clipboard-restore", daemon=True).start()
+            return Result.PASTED
+
     seq = win32.set_clipboard_text(text)
     time.sleep(0.03)
     if not win32.send_ctrl_v():
@@ -71,13 +109,7 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
             time.sleep(RESTORE_DELAY_S)
             # Only if nobody copied something else in the meantime.
             if win32.GetClipboardSequenceNumber() == seq:
-                try:
-                    if saved:
-                        win32.clipboard_restore(saved)
-                    else:
-                        win32.set_clipboard_text(old)
-                except OSError as e:
-                    log.info("restoring the clipboard failed: %s", e)
+                put_old_back()
 
         threading.Thread(target=put_back, name="clipboard-restore", daemon=True).start()
     return Result.PASTED
