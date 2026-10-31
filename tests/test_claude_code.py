@@ -80,14 +80,10 @@ def test_slow_start_gives_up_early(monkeypatch):
     p.shutdown()
 
 
-def test_cold_start_gets_longer_to_begin(monkeypatch):
-    monkeypatch.setattr(cc, "FIRST_TOKEN_S", 0.5)
-    monkeypatch.setattr(cc, "COLD_FIRST_TOKEN_S", 2.0)
-    p = polisher(monkeypatch, "hang", timeout=10, claude_prewarm=False)
-    t = time.monotonic()
-    with pytest.raises(cc.PolishError, match="2 秒"):
-        p.polish("你好")
-    assert 1.8 < time.monotonic() - t < 4
+def test_slow_first_word_still_leaves_time_to_write(monkeypatch):
+    monkeypatch.setattr(cc, "FIRST_TOKEN_S", 3.0)
+    p = polisher(monkeypatch, "slow", timeout=1)
+    assert p.polish("你好") == "整理：你好"
     p.shutdown()
 
 

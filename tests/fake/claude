@@ -30,6 +30,8 @@ for line in sys.stdin:
     out({"type": "system", "subtype": "init"})
     if mode == "hang":
         time.sleep(60)
+    if mode == "slow":
+        time.sleep(1.5)  # a slow first word, then a normal answer
     if mode == "login":
         out({"type": "assistant", "error": "authentication_failed",
              "message": {"content": [{"type": "text", "text": "Not logged in · Please run /login"}]}})

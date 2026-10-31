@@ -37,11 +37,9 @@ log = logging.getLogger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _IS_WIN = sys.platform == "win32"
 
-# A dictation normally starts streaming within ~2 s. Past this, paste the transcript as is
-# instead of keeping the person waiting.
-FIRST_TOKEN_S = 8.0
-# A process started just now first has to load (seen: 8 s and still nothing after hours idle).
-COLD_FIRST_TOKEN_S = 20.0
+# A dictation normally starts streaming within ~2 s, but the first one after hours without
+# using Claude has gone past 8 s even on a fresh process. Past this, paste the transcript as is.
+FIRST_TOKEN_S = 25.0
 # A waiting process left idle this long is not trusted (seen: 2 s after 6 min, 20 s after 14).
 WARM_MAX_AGE_S = 300.0
 # So the waiting one is swapped for a new one this often, and a dictation never finds it stale.
@@ -189,7 +187,8 @@ class _Worker:
     def ask(
         self, text: str, timeout: float, on_text: Callable[[str], None] | None = None, first_token: float | None = None
     ) -> str:
-        """`first_token`: give up early when the model has not started writing by then."""
+        """`first_token`: give up early when the model has not started writing by then; once it
+        has, `timeout` counts from the first word, so a slow start still leaves time to write."""
         msg = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
         try:
             assert self.proc.stdin is not None
@@ -227,6 +226,8 @@ class _Worker:
                 e = ev.get("event") or {}
                 d = e.get("delta") or {}
                 if e.get("type") == "content_block_delta" and d.get("type") == "text_delta":
+                    if first_token is not None and not streamed:
+                        deadline = time.monotonic() + timeout
                     streamed += d.get("text", "")
                     if on_text is not None:
                         on_text(streamed)
@@ -472,8 +473,7 @@ class ClaudeCodePolisher:
         t0 = time.monotonic()
         how = "cold" if cold else "warm"
         try:
-            first = COLD_FIRST_TOKEN_S if cold else FIRST_TOKEN_S
-            out = w.ask(prompt.user_message(transcript), self.cfg.claude_timeout_s, on_text, first)
+            out = w.ask(prompt.user_message(transcript), self.cfg.claude_timeout_s, on_text, FIRST_TOKEN_S)
             log.info("claude answered in %.2fs (%s)", time.monotonic() - t0, how)
             with self._lock:
                 self.status = f"就緒（{self.cfg.claude_model or '預設模型'}）"
