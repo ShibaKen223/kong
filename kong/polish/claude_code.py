@@ -200,7 +200,8 @@ class _Worker:
             raise PolishError(_explain(self.stderr_text()))
 
         t0 = time.monotonic()
-        deadline = t0 + timeout
+        # Until the first word only `first_token` applies; `timeout` restarts when it comes.
+        deadline = t0 + (timeout if first_token is None else first_token)
         streamed = ""
         while True:
             now = time.monotonic()
@@ -209,8 +210,6 @@ class _Worker:
             remaining = deadline - now
             if remaining <= 0:
                 raise PolishError(f"Claude Code 超過 {timeout:.0f} 秒沒有回應")
-            if first_token is not None and not streamed:
-                remaining = min(remaining, t0 + first_token - now)
             try:
                 ev = self._events.get(timeout=remaining)
             except queue.Empty:

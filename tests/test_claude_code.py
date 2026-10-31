@@ -65,8 +65,10 @@ def test_expired_login_says_so():
 
 def test_timeout(monkeypatch):
     p = polisher(monkeypatch, "hang", timeout=1)
-    with pytest.raises(cc.PolishError, match="秒"):
-        p.polish("你好")
+    t = time.monotonic()
+    with pytest.raises(cc.PolishError, match="超過 1 秒"):
+        p.complete("整理會議", "你好", timeout=1)
+    assert time.monotonic() - t < 3
     p.shutdown()
 
 
