@@ -614,7 +614,13 @@ class App:
                 self._finish(cancel, "info", msg, hide=1.4)
                 return
 
-            result = self.paste_fn(o.final, target, cfg.paste_method, cfg.restore_clipboard)
+            def unread() -> None:
+                with self._lock:
+                    if self.state != "idle":
+                        return  # a new dictation has the panel now
+                self.panel.show("warn", "沒有貼上，已放進剪貼簿", o.final, hint="請點一下要貼的地方，再按 Ctrl+V", hide_after=10)
+
+            result = self.paste_fn(o.final, target, cfg.paste_method, cfg.restore_clipboard, unread)
             self.history.add(o.final)
             if not o.note and cfg.polish == "claude_code":
                 self._learn_from(o.raw, o.final)

@@ -62,7 +62,7 @@ class MainWindow:
 
         self._visible = False
         self._told_background = False
-        self._history_count = -1
+        self._history_key = None
         self._block_kind = ""
         self._block_since = time.monotonic()
         self._block_view = View()
@@ -249,9 +249,11 @@ class MainWindow:
 
     def _fill_history(self) -> None:
         items = self.app.history.items()
-        if len(items) == self._history_count and items and self._hist_texts:
+        # The newest item, not the count: once 20 are kept the count stops changing.
+        key = (len(items), items[0].get("t"), items[0]["text"]) if items else None
+        if key == self._history_key and self._hist_texts:
             return
-        self._history_count = len(items)
+        self._history_key = key
         if items:
             self.h_recent.pack(fill="both", expand=True)
         else:

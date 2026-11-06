@@ -7,14 +7,16 @@ import logging
 import sys
 import threading
 import time
+from typing import Callable
 
 log = logging.getLogger(__name__)
 
 # Putting the old clipboard back waits until the app has actually read our text (see
 # win32.ClipboardOffer), then this long more so it can finish with it.
 AFTER_READ_S = 0.3
-# Nobody read it by then: the paste did not happen. The text stays, for a Ctrl+V by hand.
-READ_WAIT_S = 6.0
+# Nobody read it by then: the paste did not happen. The text stays, for a Ctrl+V by hand (an
+# app that reads later still gets the right text; only the old clipboard is not put back).
+READ_WAIT_S = 3.0
 # Without an offer (it could not be set up), the old guess: put it back after this long.
 RESTORE_DELAY_S = 1.2
 
@@ -26,7 +28,10 @@ class Result(enum.Enum):
     FOCUS_LOST = "focus_lost"  # the original window would not come back: on the clipboard instead
 
 
-def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = True) -> Result:
+def paste(
+    text: str, target_hwnd, method: str = "clipboard", restore: bool = True, on_unread: Callable[[], None] | None = None
+) -> Result:
+    """`on_unread`: called (from another thread) when the Ctrl+V turned out not to paste."""
     if sys.platform != "win32":
         raise RuntimeError("pasting is only implemented on Windows")
     from . import win32
@@ -87,8 +92,14 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
 
             def after_paste():
                 if not offer.wait_read(READ_WAIT_S):
-                    log.info("nobody read the text within %.0f s: leaving it on the clipboard", READ_WAIT_S)
+                    fg = win32.GetForegroundWindow()
+                    log.info(
+                        "nobody read the text within %.0f s: leaving it on the clipboard (target %s, in front %s)",
+                        READ_WAIT_S, _describe(win32, target_hwnd), _describe(win32, fg),
+                    )
                     offer.close()
+                    if on_unread is not None:
+                        on_unread()
                     return
                 time.sleep(AFTER_READ_S)
                 if offer.still_ours():  # nobody copied something else meanwhile
@@ -113,6 +124,16 @@ def paste(text: str, target_hwnd, method: str = "clipboard", restore: bool = Tru
 
         threading.Thread(target=put_back, name="clipboard-restore", daemon=True).start()
     return Result.PASTED
+
+
+def _describe(win32, hwnd) -> str:
+    """Which program a window belongs to, for the log."""
+    if not hwnd:
+        return "none"
+    try:
+        return f"{win32.process_name(win32.window_pid(hwnd)) or '?'} {int(hwnd):#x}"
+    except (OSError, ValueError, TypeError):
+        return "?"
 
 
 def copy(text: str) -> None:
