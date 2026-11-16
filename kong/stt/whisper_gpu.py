@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ..audio import SR
-from . import drop_hallucination
+from ..audio import SR, split_long
+from . import drop_hallucination, join_pieces
 
 log = logging.getLogger(__name__)
 
@@ -36,15 +36,22 @@ class WhisperGPU:
         prompt = _STYLE_PROMPT
         if glossary:
             prompt += "常用詞：" + "、".join(glossary[:40]) + "。"
-        with self._lock:
-            segments, _info = self._model.transcribe(
-                audio,
-                language="zh",
-                beam_size=5,
-                initial_prompt=prompt,
-                condition_on_previous_text=False,
-                vad_filter=False,
-                without_timestamps=True,
-            )
-            text = "".join(s.text for s in segments)
-        return drop_hallucination(text, len(audio) / SR)
+        # Whisper reads 30 s at a time and, without timestamps, moves on by exactly 30 s: a word
+        # across that line is cut in two. Cut at the quietest moment before it instead.
+        pieces = []
+        for chunk in split_long(audio, 28.0):
+            if len(chunk) < SR // 10:
+                continue
+            with self._lock:
+                segments, _info = self._model.transcribe(
+                    chunk,
+                    language="zh",
+                    beam_size=5,
+                    initial_prompt=prompt,
+                    condition_on_previous_text=False,
+                    vad_filter=False,
+                    without_timestamps=True,
+                )
+                text = "".join(s.text for s in segments)
+            pieces.append(drop_hallucination(text, len(chunk) / SR))
+        return join_pieces(pieces)
