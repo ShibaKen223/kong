@@ -77,3 +77,20 @@ def test_long_meetings_are_sampled_not_truncated(tmp_path):
     lr.learn_text(lines, ask)
     msg = ask.calls[0]
     assert len(msg) < 20000 and "Project0" in msg and "Project2" in msg.split("Project0")[-1]
+
+
+def test_a_failed_pass_keeps_the_sentences_for_later(tmp_path):
+    lr, _ = make(tmp_path)
+    for i in range(BATCH):
+        lr.add(f"原稿{i}", f"我們用 GitHub 第{i}次")
+
+    def broken(*_):
+        raise RuntimeError("Claude 訂閱的用量到上限了")
+
+    assert lr.learn_pending(broken) == []
+    assert len(lr.pending) == BATCH and "用量" in lr.last_note
+    # The next dictation does not start another pass at once...
+    assert lr.add("原稿", "再一句") is False
+    # ...but asking by hand works, and only then are the sentences let go.
+    assert lr.learn_pending(fake_ask('["GitHub"]')) == ["GitHub"]
+    assert lr.pending == []

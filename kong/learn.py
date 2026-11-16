@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -26,6 +27,8 @@ BATCH = 8  # dictations per learning pass
 MAX_TERMS = 150
 MAX_SAMPLE_CHARS = 12000
 TIMEOUT_S = 90.0
+# After a pass that failed (usage limit, no network), wait this long before the next try.
+RETRY_AFTER_S = 600.0
 
 # ask(system_prompt, message, timeout) -> answer: ClaudeCodePolisher.complete, bound to a name.
 Ask = Callable[[str, str, float], str]
@@ -58,6 +61,7 @@ class Learner:
         self.counts: dict[str, int] = {}
         self.blocked: set[str] = set()
         self.last_note = ""
+        self._retry_at = 0.0
         self._load()
 
     # --- state -------------------------------------------------------------------------
@@ -97,8 +101,9 @@ class Learner:
         """Remember one dictation; True when enough are waiting for a learning pass."""
         with self._lock:
             self.pending.append([raw, final])
+            self.pending = self.pending[-BATCH * 3 :]
             self._save()
-            return len(self.pending) >= BATCH and not self._busy
+            return len(self.pending) >= BATCH and not self._busy and time.monotonic() >= self._retry_at
 
     def learn_pending(self, ask: Ask) -> list[str]:
         with self._lock:
@@ -108,8 +113,14 @@ class Learner:
             batch = list(self.pending)
         try:
             new = self._learn([(r, f) for r, f in batch], ask)
+            if new is None:
+                # Claude could not be asked: the sentences stay for the next pass.
+                self._retry_at = time.monotonic() + RETRY_AFTER_S
+                return []
             with self._lock:
-                self.pending = self.pending[len(batch) :]
+                # Not a slice by count: add() may have dropped old ones from the front meanwhile.
+                done = [tuple(b) for b in batch]
+                self.pending = [p for p in self.pending if tuple(p) not in done]
                 self._save()
             return new
         finally:
@@ -122,11 +133,12 @@ class Learner:
                 return []
             self._busy = True
         try:
-            return self._learn([("", ln) for ln in lines], ask)
+            return self._learn([("", ln) for ln in lines], ask) or []
         finally:
             self._busy = False
 
-    def _learn(self, samples: list[tuple[str, str]], ask: Ask) -> list[str]:
+    def _learn(self, samples: list[tuple[str, str]], ask: Ask) -> list[str] | None:
+        """The new words, or None when Claude could not be asked at all."""
         # Keep the message bounded: a long meeting is sampled evenly, not just its start.
         total = sum(len(r) + len(f) + 40 for r, f in samples)  # 40: the tags around each one
         if total > MAX_SAMPLE_CHARS:
@@ -138,7 +150,7 @@ class Learner:
         except Exception as e:
             self.last_note = f"這次沒有學到新詞：{e}"
             log.info("learning words failed: %s", e)
-            return []
+            return None
         new = []
         with self._lock:
             for t in parse_terms(answer):
