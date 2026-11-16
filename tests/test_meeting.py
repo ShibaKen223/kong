@@ -113,3 +113,68 @@ def test_without_notes_says_why(tmp_path):
 def test_helpers():
     assert stamp(3725.9) == "01:02:05"
     assert notes_timeout(0) == 180 and notes_timeout(10**7) == 900
+
+
+class StallingRecorder:
+    """Speech, then nothing arrives (unplugged), then speech again."""
+
+    def __init__(self, script):
+        self.script, self.i, self.n = script, 0, 0
+
+    def take(self):
+        out = self.script[self.i] if self.i < len(self.script) else np.zeros(0, np.float32)
+        self.i += 1
+        self.n += len(out)
+        return out
+
+    def stop(self):
+        return np.zeros(0, np.float32)
+
+    def elapsed(self):
+        return self.n / SR
+
+
+def test_a_mic_that_stops_is_reported_and_marked(tmp_path):
+    empty = np.zeros(0, np.float32)
+    script = [speech(1)] * 3 + [empty] * 6 + [speech(1)] * 2
+    said = []
+    m = Meeting(StallingRecorder(script), FakeEngine(), tmp_path, on_problem=said.append)
+    for _ in script:
+        m._take()
+    assert len(said) == 2 and "停止傳送" in said[0] and said[1] == ""
+    assert m.mic_gaps == 1 and m.problem == "" and len(m.marks) == 2
+    m.finish()
+    text = m.write().read_text(encoding="utf-8-sig")
+    assert "麥克風中途有 1 次沒有聲音" in text and "從這裡開始麥克風沒有聲音" in text and "麥克風恢復" in text
+
+
+def test_digital_silence_is_reported_once(tmp_path):
+    script = [speech(1)] + [silence(1)] * 40
+    said = []
+    m = Meeting(StallingRecorder(script), FakeEngine(), tmp_path, on_problem=said.append)
+    for _ in script:
+        m._take()
+    assert len(said) == 1 and "完全靜音" in said[0] and m.mic_gaps == 1
+
+
+def test_a_short_gap_is_not_a_problem(tmp_path):
+    empty = np.zeros(0, np.float32)
+    script = [speech(1), empty, empty, speech(1), silence(1), silence(1), speech(1)]
+    said = []
+    m = Meeting(StallingRecorder(script), FakeEngine(), tmp_path, on_problem=said.append)
+    for _ in script:
+        m._take()
+    assert said == [] and m.mic_gaps == 0
+
+
+def test_two_meetings_in_the_same_minute_keep_both_files(tmp_path):
+    files = []
+    for words in ("第一場", "第二場"):
+        rec = FakeRecorder(speech(3))
+        m = Meeting(rec, FakeEngine(), tmp_path, keep_audio=True)
+        m.finish()
+        m.lines[0].text = words
+        files.append(m.write())
+    assert files[0] != files[1]
+    assert "第一場" in files[0].read_text(encoding="utf-8-sig") and "第二場" in files[1].read_text(encoding="utf-8-sig")
+    assert len(list(tmp_path.glob("*.wav"))) == 2

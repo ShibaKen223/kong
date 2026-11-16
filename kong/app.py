@@ -122,6 +122,8 @@ class App:
             return "處理中…", ""
         if self.state == "meeting" and self.meeting is not None:
             m = self.meeting
+            if m.problem:
+                return "會議記錄中：麥克風沒有聲音", m.problem
             return "會議記錄中", f"已錄 {meeting.stamp(m.elapsed())}，轉成 {m.chars:,} 字。結束時在「會議記錄」按「結束並整理」。"
         if self.state == "saving":
             return "整理會議記錄中…", "辨識最後一段、請 Claude 寫重點，好了會打開檔案。"
@@ -438,7 +440,7 @@ class App:
         elif self.state == "busy":
             self._job_cancel.set()
             self._set_state("idle", self._idle_tooltip())
-            self.panel.show("info", "已取消", hide_after=0.8)
+            self.panel.show("info", "已取消，沒有貼上", hint="辨識好的內容會留在主視窗的「最近說過的話」", hide_after=2.5)
 
     def _open_mic(self) -> str | None:
         """Start recording; returns an error message instead of raising."""
@@ -539,6 +541,8 @@ class App:
         sp = cfg.cjk_latin_space
         out = Outcome("ok", engine=engine.label, audio_s=len(clip) / audio.SR)
         if audio.is_dead_mic(clip):
+            if seg is not None:
+                seg.cancel()
             out.status = "dead_mic"
             return out
         trimmed = audio.trim_silence(clip)
@@ -599,6 +603,11 @@ class App:
         try:
             o = self._recognize(clip, engine, seg, cancel, on_panel=True)
             if o.status == "cancelled":
+                # Esc is easy to hit by accident (an input method uses it too): the words
+                # are not pasted, but they stay in 最近說過的話.
+                kept = o.final or textproc.basic_cleanup(o.raw, cfg.cjk_latin_space)
+                if kept:
+                    self.history.add(kept)
                 return
             if o.status == "dead_mic":
                 self._finish(
@@ -668,6 +677,7 @@ class App:
                     keep_audio=cfg.meeting_keep_audio,
                     max_s=cfg.meeting_max_hours * 3600,
                     on_limit=lambda: self._events.put("meeting_limit"),
+                    on_problem=self._meeting_mic_problem,
                 )
             except OSError as e:
                 self.recorder.cancel()
@@ -683,6 +693,20 @@ class App:
         )
         self.tray.refresh()
         return None
+
+    def _meeting_mic_problem(self, problem: str) -> None:
+        """From the meeting thread: the mic went quiet for good, or came back."""
+        if problem == meeting.MIC_STALLED:
+            self.panel.show(
+                "error", "會議記錄：麥克風沒有聲音", problem,
+                hint="請結束這場會議記錄，檢查麥克風後再開一場", hide_after=30,
+            )
+        elif problem:
+            self.panel.show("warn", "會議記錄：麥克風沒有聲音", problem, hint="如果是你自己按了靜音，可以不用理會", hide_after=10)
+        else:
+            self.panel.show("ok", "會議記錄：麥克風恢復了", "中間沒錄到的那段，逐字稿裡有標出位置。", hide_after=5)
+        if self.tray is not None:
+            self.tray.refresh()
 
     def stop_meeting(self) -> None:
         with self._lock:
